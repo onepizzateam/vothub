@@ -183,12 +183,14 @@ def repo_verdict(r):
         return "archived"
     if not r["hasIssuesEnabled"]:
         return "issues disabled"
-    contributing = ((r.get("contributing") or {}).get("text") or "")[:20000]
-    if CLOSED_DOOR.search(contributing):
-        return "CONTRIBUTING says no outside PRs"
     cutoff = NOW - timedelta(days=90)
     outside = sum(1 for p in r["pullRequests"]["nodes"]
                   if p["authorAssociation"] in OUTSIDER and p["mergedAt"] and _dt(p["mergedAt"]) > cutoff)
+    contributing = ((r.get("contributing") or {}).get("text") or "")[:20000]
+    # Merged outside PRs are stronger evidence than wording: the text only decides
+    # when few outsiders actually get merged (it often restricts one kind of PR).
+    if outside < 5 and CLOSED_DOOR.search(contributing):
+        return "CONTRIBUTING says no outside PRs"
     if outside < 2:
         return f"only {outside} outside PRs merged in 90d"
     return None
@@ -240,6 +242,11 @@ SUBSTANTIAL = ["design and implement a substantial new subsystem",
                "implement an algorithm with careful performance and correctness work"]
 TRIVIAL = ["fix a small typo", "minor wording change", "bump a dependency version",
            "simple question about how to use it"]
+
+
+JUNK = re.compile(r"airdrop|micro-?payments?|boost your|giveaway|backlinks?|\bseo\b|sponsor(ed|ship)|"
+                  r"promo(tion| code)|earn (money|crypto|rewards)|listed your (tool|project)", re.I)
+SCORE_V = 2  # bump when scoring rules change so cached verdicts are recomputed
 
 
 def issue_text(c):
@@ -294,9 +301,20 @@ class HeuristicScorer:
 def _finish(c, kind, sector, base):
     """Blend the model signal with structural evidence of how big the change is."""
     labels = " ".join(c["labels"]).lower()
+    title = c["title"].lower()
+    # an explicit title prefix beats the model's guess at the kind
+    if re.search(r"\[\s*bug\s*\]|^bug\s*[:(]", title):
+        kind = "bug"
+    elif kind not in ("perf", "research") and re.search(
+            r"\[\s*(feature|feat|enhancement)( request)?\s*\]|^(feature request|feat\b|proposal)", title):
+        kind = "feature"
     s = base + min(16, len(c["body"]) / 180) + min(8, c["reactions"] * 2) + min(6, c["comments"])
     if re.search(r"enhancement|feature|perf|rfc|proposal|epic", labels):
         s += 6
+    if len(re.findall(r"\w+", title)) < 3:
+        s -= 30  # one- or two-word titles are almost never real work items
+    if JUNK.search(title + " " + c["body"][:400]):
+        s -= 45
     effort = "L" if s >= 70 else "M" if s >= 48 else "S"
     bits = [kind, f"{len(c['body']) // 100 * 100}+ chars" if len(c["body"]) > 300 else "short report"]
     if c["reactions"]:
@@ -487,7 +505,7 @@ def main():
     repos, cands, dropped = {}, [], 0
     for full, t in targets.items():
         memo = cache["repos"].get(full)
-        if memo and memo["t"] > now_s - 3 * 86400:  # known closed-door repo: skip the API call
+        if memo and memo.get("v") == SCORE_V and memo["t"] > now_s - 3 * 86400:  # known closed-door repo: skip the API call
             dropped += 1
             continue
         try:
@@ -498,7 +516,7 @@ def main():
         why_not = repo_verdict(r)
         if why_not:
             log(f"  drop {full}: {why_not}")
-            cache["repos"][full] = {"t": now_s, "why": why_not}
+            cache["repos"][full] = {"t": now_s, "why": why_not, "v": SCORE_V}
             dropped += 1
             continue
         age = max(14, (NOW - _dt(r["createdAt"])).days)
@@ -518,7 +536,11 @@ def main():
     log(f"{len(repos)} repos open to outsiders, {dropped} dropped, {len(cands)} unclaimed issues")
 
     # 3. score, reusing cached verdicts for issues that have not changed
-    fresh = [c for c in cands if cache["issues"].get(f"{c['repo']}#{c['num']}", {}).get("u") != c["updated"]]
+    def stale(c):
+        entry = cache["issues"].get(f"{c['repo']}#{c['num']}", {})
+        return entry.get("u") != c["updated"] or entry.get("v") != SCORE_V
+
+    fresh = [c for c in cands if stale(c)]
     scorer_name = prev_feed.get("scorer", "cache")
     if fresh:
         scorer = pick_scorer()
@@ -527,7 +549,7 @@ def main():
         for c, sc in zip(fresh, scorer.score(fresh)):
             key = f"{c['repo']}#{c['num']}"
             first = cache["issues"].get(key, {}).get("first", now_s)
-            cache["issues"][key] = {"u": c["updated"], "sc": sc, "first": first}
+            cache["issues"][key] = {"u": c["updated"], "sc": sc, "first": first, "v": SCORE_V}
     for c in cands:
         entry = cache["issues"][f"{c['repo']}#{c['num']}"]
         entry["seen"] = now_s
