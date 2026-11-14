@@ -1,0 +1,65 @@
+name: vothub-scan
+
+# 06:15 and 18:15 IST (cron is UTC). The desktop tab pulls the result at 07:00 / 19:00.
+on:
+  schedule:
+    - cron: "45 0 * * *"
+    - cron: "45 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vothub-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore previous feed + score cache from the data branch
+        run: |
+          mkdir -p data
+          if git fetch --depth=1 origin data 2>/dev/null; then
+            git archive FETCH_HEAD | tar -x -C data
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scanner/requirements.txt
+
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/vothub-models
+          key: vothub-models-bge-small-v1
+
+      - run: pip install -q -r scanner/requirements.txt
+
+      - name: Scan
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }} # optional: enables Claude scoring
+          VOTHUB_MODEL: ${{ vars.VOTHUB_MODEL }}               # optional: override the Claude model
+          VOTHUB_MODEL_DIR: /home/runner/.cache/vothub-models
+        run: |
+          [ -n "$VOTHUB_MODEL" ] || unset VOTHUB_MODEL
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          python scanner/scan.py --out data
+
+      - name: Publish to the data branch (single orphan commit, history never grows)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd data
+          rm -rf .git
+          git init -q -b data
+          git add feed.json.gz cache.json.gz
+          git -c user.name=vothub-bot -c user.email=vothub-bot@users.noreply.github.com commit -qm "scan $(date -u +%FT%RZ)"
+          git push -qf "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data

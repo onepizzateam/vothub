@@ -1,0 +1,5 @@
+app/target/
+app/gen/
+data/
+__pycache__/
+.claude/

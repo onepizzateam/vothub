@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VOTHUB</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="mini">
+
+<!-- ============ collapsed tab: 1/16 of the screen ============ -->
+<section id="mini" title="Click to open the full console">
+  <header data-tauri-drag-region>
+    <span class="brand" data-tauri-drag-region><i class="lamp"></i>VOTHUB</span>
+    <span class="state" id="m-state">LISTENING</span>
+    <button class="btn danger" id="m-halt" title="Stop everything">HALT</button>
+  </header>
+  <canvas id="m-scope" class="scope"></canvas>
+  <div class="metrics">
+    <div><b id="m-signals">--</b><span>SIGNALS</span></div>
+    <div><b id="m-new">--</b><span>NEW</span></div>
+    <div><b id="m-top">--</b><span>TOP</span></div>
+    <div><b id="m-repos">--</b><span>REPOS</span></div>
+  </div>
+  <div class="ticker" id="m-ticker">NO SIGNAL</div>
+  <footer><span id="m-next">NEXT SCAN --:--:--</span><span id="m-status"></span></footer>
+</section>
+
+<!-- ============ expanded console ============ -->
+<section id="full">
+  <header data-tauri-drag-region>
+    <span class="brand" data-tauri-drag-region><i class="lamp"></i>VOTHUB <em>// DEEP REPO LISTENING POST</em></span>
+    <span class="state" id="f-state">LISTENING</span>
+    <span class="grow" data-tauri-drag-region></span>
+    <button class="btn" id="f-sync">SYNC NOW</button>
+    <button class="btn danger" id="f-halt">HALT</button>
+    <button class="btn" id="f-collapse" title="Back to the mini tab">COLLAPSE</button>
+  </header>
+
+  <aside>
+    <div class="panel">
+      <h3>RECEIVER</h3>
+      <canvas id="f-scope" class="scope"></canvas>
+      <div class="metrics">
+        <div><b id="f-signals">--</b><span>SIGNALS</span></div>
+        <div><b id="f-new">--</b><span>NEW</span></div>
+        <div><b id="f-top">--</b><span>TOP</span></div>
+        <div><b id="f-repos">--</b><span>REPOS</span></div>
+      </div>
+      <dl>
+        <dt>NEXT SCAN</dt><dd id="f-next">--</dd>
+        <dt>LAST SWEEP</dt><dd id="f-gen">--</dd>
+        <dt>SCORER</dt><dd id="f-scorer">--</dd>
+        <dt>LINK</dt><dd id="f-status">--</dd>
+      </dl>
+    </div>
+
+    <div class="panel">
+      <h3>SWEEP LOG <small>last 4 days</small></h3>
+      <div id="f-runs" class="runs"></div>
+    </div>
+
+    <div class="panel">
+      <h3>FILTERS</h3>
+      <div class="chips" id="flt-lane"></div>
+      <div class="chips" id="flt-kind"></div>
+      <div class="chips" id="flt-lang"></div>
+      <div class="chips" id="flt-misc"></div>
+    </div>
+
+    <div class="panel">
+      <h3>STATION</h3>
+      <label class="field">FEED REPO
+        <span class="row"><input id="cfg-repo" placeholder="owner/name" spellcheck="false" autocomplete="off"><button class="btn" id="cfg-save">SET</button></span>
+      </label>
+      <div class="note" id="cfg-note"></div>
+      <label class="check"><input type="checkbox" id="cfg-auto"> START WITH WINDOWS</label>
+      <button class="btn danger wide" id="cfg-quit">SHUT DOWN STATION</button>
+    </div>
+  </aside>
+
+  <main>
+    <div class="listhead"><span id="list-count">0 SIGNALS</span><span>RANKED BY SUBSTANCE // DOCS LAST</span></div>
+    <div id="list"></div>
+  </main>
+</section>
+
+<!-- ============ halt dialog ============ -->
+<div id="modal" hidden>
+  <div class="dialog">
+    <div id="halt-step1">
+      <h2>HALT ALL OPERATIONS</h2>
+      <p>For how long?</p>
+      <div class="choices" id="halt-choices"></div>
+      <button class="btn wide" data-close>CANCEL</button>
+    </div>
+    <div id="halt-step2" hidden>
+      <h2>ARE YOU SURE?</h2>
+      <p id="halt-summary"></p>
+      <p class="dim">No syncing, no system probing and no animation until then. One click resumes.</p>
+      <div class="row">
+        <button class="btn danger grow" id="halt-confirm">YES, HALT</button>
+        <button class="btn grow" data-close>NO, KEEP LISTENING</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="crt" aria-hidden="true"></div>
+<script src="app.js"></script>
+</body>
+</html>

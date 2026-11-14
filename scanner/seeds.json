@@ -1,0 +1,34 @@
+{
+  "ai-infra": [
+    "crewAIInc/crewAI",
+    "pydantic/pydantic-ai",
+    "vllm-project/vllm",
+    "sgl-project/sglang",
+    "ray-project/ray",
+    "kvcache-ai/Mooncake",
+    "NVIDIA/TensorRT",
+    "huggingface/text-generation-inference",
+    "ggml-org/llama.cpp",
+    "BerriAI/litellm",
+    "langchain-ai/langgraph",
+    "microsoft/autogen",
+    "triton-inference-server/server",
+    "skypilot-org/skypilot"
+  ],
+  "systems": [
+    "huggingface/candle",
+    "tracel-ai/burn",
+    "astral-sh/uv",
+    "astral-sh/ruff",
+    "apache/datafusion",
+    "lancedb/lance",
+    "tokio-rs/tokio",
+    "bevyengine/bevy",
+    "pola-rs/polars",
+    "risingwavelabs/risingwave",
+    "tursodatabase/turso",
+    "zed-industries/zed",
+    "ziglang/zig",
+    "duckdb/duckdb"
+  ]
+}
