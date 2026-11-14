@@ -19,10 +19,9 @@
 
 Twice a day a cloud job sweeps GitHub for repositories that are gaining stars fast, in two lanes. It throws away every repo that does not merge outside contributors, keeps only issues nobody has claimed, scores them for how much real engineering they need, and beams a 20 KB feed down to a tab that takes one sixteenth of your screen.
 
-<table>
-<tr>
-<td width="50%"><img src="docs/tab.svg" width="100%" alt="The mini tab: live waveform, 240 signals, 240 new, top score 96, 74 repos, and a ticker of the top-ranked issues."></td>
-<td width="50%">
+<p align="center">
+<img src="docs/tab.svg" width="62%" alt="The mini tab: live waveform, 240 signals, 240 new, top score 96, 74 repos, and a ticker of the top-ranked issues.">
+</p>
 
 | LANE | LISTENING FOR |
 |---|---|
@@ -30,10 +29,6 @@ Twice a day a cloud job sweeps GitHub for repositories that are gaining stars fa
 | `systems` | bleeding-edge Rust, C++ and Zig, plus research implementations: databases, compilers, runtimes, GPU kernels |
 
 Click the tab and it opens into the full console: the ranked list, tags for language, sector, kind and effort, filters, and a log of the last four days of sweeps. Click any signal to open the issue.
-
-</td>
-</tr>
-</table>
 
 ## `>` SIGNAL PATH
 
@@ -83,10 +78,9 @@ Substance first. Anything a maintainer labelled as docs is forced to the bottom 
 
 ## `>` STATION CONTROLS
 
-<table>
-<tr>
-<td width="50%"><img src="docs/halt.svg" width="100%" alt="Halt sequence: click HALT, pick a duration, confirm, and the station goes amber and silent until resumed."></td>
-<td width="50%">
+<p align="center">
+<img src="docs/halt.svg" width="62%" alt="Halt sequence: click HALT, pick a duration, confirm, and the station goes amber and silent until resumed.">
+</p>
 
 **HALT** stops everything on the laptop in one click: no syncing, no system probing, no animation. Pick a duration, confirm, done. **RESUME** is one click too.
 
@@ -96,10 +90,6 @@ Substance first. Anything a maintainer labelled as docs is forced to the bottom 
 | **STORAGE** | one gzipped feed and a small state file; nothing older than four days survives |
 | **FOOTPRINT** | a 4 MB executable, about 30 MB of RAM for the app itself |
 | **STARTUP** | launches with Windows; toggle it under STATION |
-
-</td>
-</tr>
-</table>
 
 ## `>` BRING THE STATION ONLINE
 
