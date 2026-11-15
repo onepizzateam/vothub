@@ -17,7 +17,7 @@ let F = null;          // decoded feed
 let statusAt = 0;      // local clock when S arrived
 let expanded = false;
 let pollTimer = 0;
-const filter = { lane: -1, kinds: new Set(), lang: "", newOnly: false, hideDocs: false };
+const filter = { lane: -1, tiers: new Set(), kinds: new Set(), lang: "", newOnly: false, hideDocs: false };
 
 // ------------------------------------------------------------------ polling
 async function poll() {
@@ -85,6 +85,7 @@ function visibleIssues() {
   return F.issues.filter((it) => {
     const repo = F.repos[it[0]];
     if (filter.lane >= 0 && repo[4] !== filter.lane) return false;
+    if (filter.tiers.size && !filter.tiers.has(it[14])) return false;
     if (filter.kinds.size && !filter.kinds.has(it[5])) return false;
     if (filter.lang && repo[3] !== filter.lang) return false;
     if (filter.newOnly && !it[13]) return false;
@@ -98,7 +99,7 @@ function renderFeed() {
   const run = F && F.runs.length ? F.runs[F.runs.length - 1] : null;
   const numbers = {
     signals: F ? issues.length : "--",
-    new: F ? issues.filter((i) => i[13]).length : "--",
+    new: F ? (F.tiers ? issues.filter((i) => i[14] === 0).length : issues.filter((i) => i[13]).length) : "--",
     top: F && issues.length ? issues[0][3] : "--",
     repos: run ? run[2] : "--",
   };
@@ -132,9 +133,14 @@ function chip(parent, label, on, onClick) {
 }
 
 function buildFilters() {
-  const lane = $("flt-lane"), kind = $("flt-kind"), lang = $("flt-lang"), misc = $("flt-misc");
-  for (const n of [lane, kind, lang, misc]) n.replaceChildren();
+  const lane = $("flt-lane"), kind = $("flt-kind"), lang = $("flt-lang"), misc = $("flt-misc"), tier = $("flt-tier");
+  for (const n of [lane, kind, lang, misc, tier]) n.replaceChildren();
   if (!F) return;
+  // ready = maintainers invited help; vetted = triaged or answered; raw = nobody has looked yet
+  (F.tiers || []).forEach((name, i) => {
+    const count = F.issues.filter((it) => it[14] === i).length;
+    if (count) chip(tier, `${name} ${count}`, filter.tiers.has(i), () => (filter.tiers.has(i) ? filter.tiers.delete(i) : filter.tiers.add(i)));
+  });
   chip(lane, "all sectors", filter.lane < 0, () => (filter.lane = -1));
   F.lanes.forEach((name, i) => chip(lane, name, filter.lane === i, () => (filter.lane = i)));
   const used = new Set(F.issues.map((i) => i[5]));
@@ -166,7 +172,7 @@ function renderList() {
   const hoursNow = nowSec() / 3600;
   const frag = document.createDocumentFragment();
   rows.forEach((it, n) => {
-    const [ri, num, title, pri, sub, kind, effort, sector, extra, createdH, comments, reactions, why, isNew] = it;
+    const [ri, num, title, pri, sub, kind, effort, sector, extra, createdH, comments, reactions, why, isNew, tier] = it;
     const repo = F.repos[ri];
     const kindName = F.kinds[kind];
     const row = el("div", "item" + (kindName === "docs" ? " docs" : ""));
@@ -189,6 +195,7 @@ function renderList() {
     meta.append(document.createTextNode(`  *${fmt(repo[1])}  +${(repo[2] / 10).toFixed(repo[2] < 100 ? 1 : 0)}/day  //  ${why}`));
     body.append(meta);
     const tags = el("div", "tags");
+    if (F.tiers && F.tiers[tier]) tags.append(el("span", "tag " + F.tiers[tier], F.tiers[tier]));
     if (isNew) tags.append(el("span", "tag new", "new"));
     tags.append(el("span", "tag kind", kindName));
     tags.append(el("span", "tag lang", repo[3]));
@@ -353,11 +360,11 @@ function mockInvoke() {
   const kinds = ["feature", "perf", "bug", "research", "infra", "refactor", "test", "question", "docs"];
   const pick = [1, 0, 3, 2, 1, 2, 1, 2, 7, 8, 8];
   const feed = {
-    v: 1, gen: now() - 2400, scorer: "embed:bge-small-en-v1.5", kinds, efforts: ["S", "M", "L"], lanes: ["ai-infra", "systems"],
+    v: 1, gen: now() - 2400, scorer: "embed:bge-small-en-v1.5", kinds, efforts: ["S", "M", "L"], lanes: ["ai-infra", "systems"], tiers: ["ready", "vetted", "raw"],
     tags: ["inference-serving", "databases", "agents", "runtime", "help wanted"],
     repos: [["demo/fastserve", 9400, 783, "Python", 0, ""], ["demo/oxidb", 3100, 258, "Rust", 1, ""], ["demo/cachemesh", 5200, 91, "C++", 0, ""]],
     issues: titles.map((t, n) => [n % 3, 100 + n, t, Math.max(8, 93 - n * 7 - (n > 7 ? 30 : 0)), 90 - n * 6, pick[n], n < 4 ? 2 : 1,
-      n % 4, n === 1 ? [4] : [], Math.floor(now() / 3600) - 20 * (n + 1), n * 2, 22 - n * 2, kinds[pick[n]] + " / 900+ chars", n < 3 ? 1 : 0]),
+      n % 4, n === 1 ? [4] : [], Math.floor(now() / 3600) - 20 * (n + 1), n * 2, 22 - n * 2, kinds[pick[n]] + " / 900+ chars", n < 3 ? 1 : 0, n < 2 ? 0 : n < 6 ? 1 : 2]),
     runs: [3, 5, 4, 6, 7, 9, 8, 11].map((v, n) => [Math.floor(now() / 3600) - (7 - n) * 12, 78, 40 + v, v, 2, 90]),
   };
   return async (cmd, args) => {

@@ -125,7 +125,7 @@ def tab_body(w, h, halted=False):
     else:
         b.append(scope(24, 66, w - 48, 150, PEAKS))
     cw = (w - 48) / 4
-    for i, (v, k) in enumerate([("240", "SIGNALS"), ("240", "NEW"), ("96", "TOP"), ("74", "REPOS")]):
+    for i, (v, k) in enumerate([("240", "SIGNALS"), ("12", "READY"), ("96", "TOP"), ("74", "REPOS")]):
         x = 24 + i * cw
         b.append(f'<rect x="{x:.0f}" y="228" width="{cw:.0f}" height="74" fill="#07100b" stroke="{line}"/>')
         b.append(f'<text x="{x + cw / 2:.0f}" y="266" fill="{hot}" font-size="32" font-weight="700" text-anchor="middle">{v}</text>')
@@ -196,10 +196,10 @@ def pipeline():
     b.append(t(60, 98, "GITHUB ACTIONS", "h", 18, extra='letter-spacing="3" font-weight="700"'))
     b.append(t(620, 98, "06:15 + 18:15 IST", "a", 15, "end"))
     stages = [("01", "DISCOVER", "star velocity across two lanes"),
-              ("02", "GATE", "do outsiders actually get merged?"),
-              ("03", "FILTER", "open, unassigned, no PR, unclaimed"),
+              ("02", "GATE", "infra, and outsiders get merged?"),
+              ("03", "FILTER", "unclaimed, not an RFC, not blocked"),
               ("04", "SCORE", "embedding model + verdict cache"),
-              ("05", "RANK", "substance first, docs always last")]
+              ("05", "RANK", "maintainer-ready first, docs last")]
     for i, (n, name, what) in enumerate(stages):
         y = 122 + i * 52
         b.append(f'<rect class="st" style="animation-delay:{i * 1.3:.1f}s" x="54" y="{y}" width="572" height="42" fill="{FG}"/>')

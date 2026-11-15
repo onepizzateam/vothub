@@ -17,10 +17,10 @@
 
 ## `>` WHAT IT IS
 
-Twice a day a cloud job sweeps GitHub for repositories that are gaining stars fast, in two lanes. It throws away every repo that does not merge outside contributors, keeps only issues nobody has claimed, scores them for how much real engineering they need, and beams a 20 KB feed down to a tab that takes one sixteenth of your screen.
+Twice a day a cloud job sweeps GitHub for repositories that are gaining stars fast, in two lanes. It throws away every repo that does not merge outside contributors, keeps only issues you could actually pick up, puts the ones maintainers have asked for help on first, and beams a 20 KB feed down to a tab that takes one sixteenth of your screen.
 
 <p align="center">
-<img src="docs/tab.svg" width="62%" alt="The mini tab: live waveform, 240 signals, 240 new, top score 96, 74 repos, and a ticker of the top-ranked issues.">
+<img src="docs/tab.svg" width="62%" alt="The mini tab: live waveform, 240 signals, 12 ready, top score 96, 74 repos, and a ticker of the top-ranked issues.">
 </p>
 
 | LANE | LISTENING FOR |
@@ -28,7 +28,7 @@ Twice a day a cloud job sweeps GitHub for repositories that are gaining stars fa
 | `ai-infra` | agents, inference serving, model infra: crewAI, pydantic-ai, vLLM, SGLang, Ray, Mooncake, TensorRT, and whatever is breaking out this week |
 | `systems` | bleeding-edge Rust, C++ and Zig, plus research implementations: databases, compilers, runtimes, GPU kernels |
 
-Click the tab and it opens into the full console: the ranked list, tags for language, sector, kind and effort, filters, and a log of the last four days of sweeps. Click any signal to open the issue.
+Click the tab and it opens into the full console: the ranked list, tags for readiness, language, sector, kind and effort, filters, and a log of the last four days of sweeps. Click any signal to open the issue.
 
 ## `>` SIGNAL PATH
 
@@ -46,7 +46,7 @@ GitHub search across about 20 topic and language queries, ranked by **stars per 
 <summary><b><code>&gt; DECODE STAGE 02 // GATE</code></b></summary>
 <br>
 
-A repo is dropped if it is archived, if fewer than 2 pull requests from outsiders were merged in the last 90 days, or if its CONTRIBUTING file closes the door and outsiders rarely get merged anyway. Merged PRs count for more than wording.
+A repo is dropped if it is archived, if fewer than 4 pull requests from outsiders were merged in the last 90 days, or if it reads as an end-user app rather than infrastructure or systems software. Each surviving repo gets a **credibility** score: how often outsiders really get merged, how recognisable and how established it is, with a little credit for early traction. Repos in `seeds.json` are always kept.
 
 </details>
 
@@ -54,7 +54,13 @@ A repo is dropped if it is archived, if fewer than 2 pull requests from outsider
 <summary><b><code>&gt; DECODE STAGE 03 // FILTER</code></b></summary>
 <br>
 
-An issue survives only if it is open, under 45 days old, unassigned, has no open or merged PR linked to it, and nobody in the comments has said some form of "I'll take this".
+An issue survives only if it is open, under 45 days old, unassigned, with no open or merged PR linked and nobody saying "I'll take this". It is also thrown out when it is not something you could pick up:
+
+- the author says they are doing it themselves (a prototype, a branch, "happy to submit a PR", a ticked "willing to contribute" box)
+- it is an RFC, proposal, tracking issue, benchmark report or question
+- maintainers marked it `needs triage`, `needs info`, `needs design`, `unconfirmed`, `in progress`, `duplicate` and the like
+- a maintainer replied that it is already fixed or being handled internally
+- a bot filed it
 
 </details>
 
@@ -72,7 +78,15 @@ No API keys: the model runs on the Actions runner for free.
 <summary><b><code>&gt; DECODE STAGE 05 // RANK</code></b></summary>
 <br>
 
-Substance first. Anything a maintainer labelled as docs is forced to the bottom of the list. Usage questions are cut by half. One- and two-word titles and promo spam are pushed down hard. At most 6 issues per repo, 240 in total.
+Every surviving issue is placed in one of three tiers, and the tier counts for more than anything in the text:
+
+| TIER | MEANS |
+|---|---|
+| `READY` | maintainers asked for help: `help wanted`, `good first issue`, `community-backlog`, `ready-for-implementation`, `E-mentor`… |
+| `VETTED` | triaged, confirmed or reproduced by the project, given a priority, or answered by a maintainer |
+| `RAW` | nobody from the project has looked at it yet; capped, and only admitted as a short tail |
+
+Within that: repo credibility, then substance, then freshness. Docs are forced to the bottom, tiny fixes lose points, at most 5 issues per repo.
 
 </details>
 

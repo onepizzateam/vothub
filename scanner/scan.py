@@ -24,8 +24,10 @@ TOKEN = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
 NOW = datetime.now(timezone.utc)
 KEEP_DAYS = 4            # nothing older than this survives in feed or cache
 ISSUE_WINDOW_DAYS = 45   # "recent" issues
-MAX_FEED = 240
-MAX_PER_REPO = 6
+MAX_FEED = 200
+MAX_PER_REPO = 5
+MAX_RAW = 40          # unvetted issues are admitted only as a small tail
+TIERS = ["ready", "vetted", "raw"]
 KINDS = ["feature", "perf", "bug", "research", "infra", "refactor", "test", "question", "docs"]
 EFFORTS = ["S", "M", "L"]
 LANES = ["ai-infra", "systems"]
@@ -77,10 +79,11 @@ query($owner:String!,$name:String!,$since:DateTime!){
     }
     issues(states:OPEN, first:40, orderBy:{field:CREATED_AT,direction:DESC}, filterBy:{since:$since}){
       nodes{
-        number title createdAt updatedAt bodyText
+        number title createdAt updatedAt bodyText body authorAssociation
+        author{__typename}
         assignees(first:1){totalCount}
         labels(first:10){nodes{name}}
-        comments(last:6){totalCount nodes{bodyText}}
+        comments(last:8){totalCount nodes{bodyText authorAssociation}}
         reactions{totalCount}
         timelineItems(itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT], first:15){
           nodes{
@@ -175,7 +178,53 @@ SKIP_LABELS = re.compile(r"wontfix|won't fix|invalid|duplicate|stale|blocked|nee
                          r"waiting|on.?hold|spam|not planned", re.I)
 
 
-def repo_verdict(r):
+def outside_merges(r):
+    """How many of the last 30 merged PRs (within 90 days) came from non-members."""
+    cutoff = NOW - timedelta(days=90)
+    return sum(1 for p in r["pullRequests"]["nodes"]
+               if p["authorAssociation"] in OUTSIDER and p["mergedAt"] and _dt(p["mergedAt"]) > cutoff)
+
+
+INFRA_WORDS = re.compile(
+    r"inference|serving|\bengine\b|runtime|framework|\bsdk\b|library|database|query|\bsql\b|compiler|tensor|"
+    r"deep learning|distributed|gateway|\bproxy\b|lakehouse|package manager|kernel|\bgpu\b|cuda|protocol|"
+    r"orchestrat|scheduler|storage|vector|embedding|training|quantiz|wasm|webassembly|allocator|sandbox|"
+    r"foundation model|toolkit|compute|emulator|headless|code intelligence|memory system|data ?frame|"
+    r"file format|parser|interpreter|virtual machine|\brpc\b|consensus|key-value|cache|operator", re.I)
+APP_WORDS = re.compile(
+    r"\bapps?\b|tracker|dashboard|video editor|photo editor|word processor|marketing|\bskills?\b|"
+    r"account (manager|switch)|switcher|one-click|tutor|viral|menu bar|diagram|design vocabulary|alternative to|"
+    r"(for|control|manage) (claude code|codex|cursor)|coding agents? (with|from)|\bnews\b|\bgym\b|at work|"
+    r"wallpaper|template|boilerplate|awesome|prompts?\b|personal assistant|browser extension|\bui kit\b|"
+    r"api key|free model|subscription|launcher|\bclient\b|chatbot|companion|plugin for", re.I)
+CORE_LANGS = {"Rust", "C++", "C", "Zig", "Go", "Python", "Cuda", "Assembly", "Mojo"}
+
+
+def domain_fit(desc, topics, lang):
+    """0..1: infrastructure / systems software (the two lanes) rather than an end-user app."""
+    text = f"{desc} {' '.join(topics)}"
+    fit = 0.5 + 0.16 * len(set(m.lower() for m in INFRA_WORDS.findall(text))) \
+        - 0.24 * len(set(m if isinstance(m, str) else m[0] for m in APP_WORDS.findall(text)))
+    fit += 0.1 if lang in CORE_LANGS else -0.12
+    return max(0.0, min(1.0, fit))
+
+
+def repo_credibility(stars, age_days, vel, outside, seeded, fit=1.0):
+    """0..1: is an outsider's merged PR here both likely and worth putting on a resume?
+
+    Led by evidence that outsiders really get merged; star count and age guard against
+    star-farmed or days-old hype, velocity keeps a little 'early traction', and domain
+    fit scales the whole thing down for end-user apps.
+    """
+    cred = (0.45 * min(1.0, outside / 20)
+            + 0.25 * min(1.0, math.log10(max(stars, 10)) / 5)
+            + 0.20 * min(1.0, max(0, age_days - 30) / 335)
+            + 0.10 * min(1.0, math.log10(1 + vel) / 2))
+    cred *= 0.35 + 0.65 * fit
+    return max(cred, 0.75) if seeded else cred
+
+
+def repo_verdict(r, seeded=False):
     """Return None if outsiders can contribute, else the reason it is dropped."""
     if r is None:
         return "not found"
@@ -183,15 +232,13 @@ def repo_verdict(r):
         return "archived"
     if not r["hasIssuesEnabled"]:
         return "issues disabled"
-    cutoff = NOW - timedelta(days=90)
-    outside = sum(1 for p in r["pullRequests"]["nodes"]
-                  if p["authorAssociation"] in OUTSIDER and p["mergedAt"] and _dt(p["mergedAt"]) > cutoff)
+    outside = outside_merges(r)
     contributing = ((r.get("contributing") or {}).get("text") or "")[:20000]
     # Merged outside PRs are stronger evidence than wording: the text only decides
     # when few outsiders actually get merged (it often restricts one kind of PR).
     if outside < 5 and CLOSED_DOOR.search(contributing):
         return "CONTRIBUTING says no outside PRs"
-    if outside < 2:
+    if outside < (2 if seeded else 4):
         return f"only {outside} outside PRs merged in 90d"
     return None
 
@@ -207,7 +254,79 @@ def issue_open_for_grabs(i):
         src = ev.get("source") or ev.get("subject") or {}
         if src.get("__typename") == "PullRequest" and src.get("state") in ("OPEN", "MERGED"):
             return False
-    return not any(CLAIM.search(c["bodyText"] or "") for c in i["comments"]["nodes"])
+    return not any(CLAIM.search(c["bodyText"] or "") or DONE.search(c["bodyText"] or "")
+                   for c in i["comments"]["nodes"])
+
+
+# --------------------------------------------------------------- actionability
+# Who filed an issue and whether a maintainer endorsed it predict "an outsider can
+# land this" far better than the issue text (cf. GitHub's good-first-issues ranking,
+# RecGFI, and the Kubernetes / Rust triage label conventions).
+MAINT = {"MEMBER", "OWNER", "COLLABORATOR"}
+DONE = re.compile(r"(fixed|addressed|resolved|implemented|landed) (in|by|on|via) (main|master|#\d+)|"
+                  r"already (fixed|implemented|addressed|supported)|duplicate of|dup of #|"
+                  r"working on (this|it) internally|on our (internal )?roadmap|will be (fixed|addressed|included) in", re.I)
+READY_LABEL = re.compile(
+    r"help.?wanted|good.?(first|second)|contributions?.?welcome|up.?for.?grabs|prs?.?welcome|"
+    r"^e-(easy|medium|help-wanted|mentor)$|community.?backlog|ready.?for.?(implementation|work|dev)|"
+    r"triage/ready|^ready$|hacktoberfest|bounty", re.I)
+VETTED_LABEL = re.compile(
+    r"^(triaged|accepted|confirmed|reproduced|approved|verified)$|triage/accepted|^backlog$|priority|severity|"
+    r"^p[0-3]$|s-has-(mcve|bisection)|regression", re.I)
+BLOCKED_LABEL = re.compile(
+    r"needs?[-: _/]*(triage|info|more|repro|design|investigation|decision|discussion|feedback|clarification|author|sig)|"
+    r"triage[-/: _]*need|untriaged|unconfirmed|awaiting|waiting|wait-|pending|blocked|stale|obsolete|duplicate|"
+    r"invalid|wontfix|won't fix|not planned|in.?progress|\bwip\b|on.?hold|spam|cannot reproduce|not.?reproducible", re.I)
+NOT_TASK_LABEL = re.compile(
+    r"^(question|support|discussion|rfc|proposal|tracking|meta|epic|roadmap|announcement|showcase|usage)$|"
+    r"kind/support|c-discussion|c-tracking|tracking.?issue", re.I)
+NOT_TASK_TITLE = re.compile(
+    r"^\W*(rfc|proposal|discussion|tracking|meta|epic|roadmap|question|announcement|showcase|survey|feedback)\b|"
+    r"\[[^\]]*(rfc|benchmark|discussion|question|proposal|tracking|roadmap)[^\]]*\]|"
+    r"tracking issue|field report|sharing results|design doc|^how (do|to|can|should)\b|is it possible|any plans?\b", re.I)
+OWNED = re.compile(  # the author says they are doing it themselves
+    r"\bi('ll| will| plan to| am going to|'m going to| intend to| would like to|'d like to|'d be happy to|'m happy to|"
+    r" am happy to| can| could) (submit|open|send|raise|contribute|work on|put up|take (this|it)|tackle|pick (this|it))|"
+    r"\bwe('ll| will| plan to| are going to| intend to) (submit|open|send|upstream|contribute|work on|implement)|"
+    r"(happy|willing|glad|keen|able) to (submit|open|send|contribute|work on|implement|put up|help implement|"
+    r"take (this|it)|upstream)|"
+    r"\b(i|we) (have|'ve)( already)? (a |an )?(working |draft |initial |local |rough )?"
+    r"(prototype|implementation|branch|patch|fix|poc|proof of concept|draft)\b|"
+    r"(proposed|implemented|opened|submitted|available|addressed) in #\d+|/pull/\d+|"
+    r"\b(my|our) (pr|pull request|branch|fork|prototype|patch)\b|pr (is )?(incoming|coming|to follow)|"
+    r"will follow up with (a )?(pr|patch)", re.I)
+COMMIT_STYLE = re.compile(r"^(fix|feat|chore|ci|refactor|perf|test|build|docs|style)(\([^)]*\))?!?:", re.I)
+WILLING_BOX = re.compile(
+    r"\[x\][^\n]{0,90}(willing|submit a (pr|pull request)|i can (help|contribute)|i would like to work|i'd like to work)", re.I)
+
+
+def actionability(c):
+    """(tier, reason): tier 0 ready, 1 vetted, 2 raw; tier None means not pick-up-able."""
+    labels, title, body = c["labels"], c["title"], c.get("body_md") or c["body"]
+    if c.get("is_bot"):
+        return None, "filed by a bot"
+    blocked = next((l for l in labels if BLOCKED_LABEL.search(l)), None)
+    if blocked:
+        return None, "blocked label: " + blocked.lower()
+    if OWNED.search(body) or WILLING_BOX.search(body):
+        return None, "author is doing it"
+    ready = next((l for l in labels if READY_LABEL.search(l)), None)
+    if ready:
+        return 0, ready.lower()
+    not_task = next((l for l in labels if NOT_TASK_LABEL.search(l)), None)
+    if not_task or NOT_TASK_TITLE.search(title):
+        return None, "discussion, not a task"
+    vetted = next((l for l in labels if VETTED_LABEL.search(l)), None)
+    if vetted:
+        return 1, vetted.lower()
+    if c.get("assoc") in MAINT:
+        # Core authors mostly close their own issues: without an invitation label this is their to-do list.
+        if COMMIT_STYLE.search(title):
+            return None, "author is doing it"
+        return 2, "maintainer's own item"
+    if c.get("maint_replied"):
+        return 1, "maintainer replied"
+    return 2, "unvetted"
 
 
 # -------------------------------------------------------------------- scoring
@@ -246,7 +365,7 @@ TRIVIAL = ["fix a small typo", "minor wording change", "bump a dependency versio
 
 JUNK = re.compile(r"airdrop|micro-?payments?|boost your|giveaway|backlinks?|\bseo\b|sponsor(ed|ship)|"
                   r"promo(tion| code)|earn (money|crypto|rewards)|listed your (tool|project)", re.I)
-SCORE_V = 2  # bump when scoring rules change so cached verdicts are recomputed
+SCORE_V = 3  # bump when scoring rules change so cached verdicts are recomputed
 
 
 def issue_text(c):
@@ -308,9 +427,11 @@ def _finish(c, kind, sector, base):
     elif kind not in ("perf", "research") and re.search(
             r"\[\s*(feature|feat|enhancement)( request)?\s*\]|^(feature request|feat\b|proposal)", title):
         kind = "feature"
-    s = base + min(16, len(c["body"]) / 180) + min(8, c["reactions"] * 2) + min(6, c["comments"])
-    if re.search(r"enhancement|feature|perf|rfc|proposal|epic", labels):
-        s += 6
+    s = base + min(9, len(c["body"]) / 320) + min(8, c["reactions"] * 2) + min(6, c["comments"])
+    if re.search(r"enhancement|feature|perf|epic", labels):
+        s += 5
+    if re.search(r"```|traceback|stack trace|steps to reproduce|minimal repro|panicked at|bisect", c.get("body_md") or c["body"], re.I):
+        s += 5  # concrete evidence: code, a trace, a repro
     if len(re.findall(r"\w+", title)) < 3:
         s -= 30  # one- or two-word titles are almost never real work items
     if JUNK.search(title + " " + c["body"][:400]):
@@ -331,20 +452,37 @@ def pick_scorer():
 
 
 def priority(c, sc):
+    """Blend: is it ready (tier), is the repo worth it (cred), is it real work (substance)."""
     labels = " ".join(c["labels"]).lower()
-    kind = sc["k"]
     if re.search(r"\bdocs?\b|documentation|typo", labels):
-        kind = sc["k"] = "docs"  # maintainers' own label wins: docs always sink
-    traction = min(1.0, math.log10(1 + c["vel"]) / 2)          # 100 stars/day saturates
+        sc["k"] = "docs"  # maintainers' own label wins: docs always sink
     fresh = max(0.0, 1 - c["age_days"] / ISSUE_WINDOW_DAYS)
-    p = 0.62 * sc["s"] + 22 * traction + 16 * fresh
-    if re.search(r"help.?wanted|good.?first|contributions?.?welcome", labels):
-        p += 4
-    if kind == "docs":
+    p = 0.42 * sc["s"] + 26 * c["cred"] + 8 * fresh + (24, 12, -10)[c["tier"]]
+    if sc["s"] < 45:
+        p -= 8          # ready but tiny: fine to do, not much to show for it
+    if c["tier"] == 2:
+        p = min(p, 58)  # nobody from the project has looked at it yet
+    if sc["k"] == "docs":
         p *= 0.2
-    elif kind == "question":
+    elif sc["k"] == "question":
         p *= 0.45
     return int(max(1, min(99, p)))
+
+
+def rank(cands):
+    """Docs last, then priority; cap per repo, and admit unvetted issues only as a tail."""
+    cands.sort(key=lambda c: (c["sc"]["k"] == "docs", -c["pri"]))
+    per_repo, raw, ranked = {}, 0, []
+    for c in cands:
+        if per_repo.get(c["repo"], 0) >= MAX_PER_REPO or len(ranked) >= MAX_FEED:
+            continue
+        if c["tier"] == 2:
+            if raw >= MAX_RAW:
+                continue
+            raw += 1
+        per_repo[c["repo"]] = per_repo.get(c["repo"], 0) + 1
+        ranked.append(c)
+    return ranked
 
 
 # ----------------------------------------------------------------------- feed
@@ -363,9 +501,10 @@ def save_gz(path, obj):
 
 def fixture():
     """Synthetic repos/issues so scoring and feed building can be tested offline."""
-    def issue(n, title, body, labels=(), react=0, days=3):
+    def issue(n, title, body, labels=(), react=0, days=3, assoc="NONE"):
         t = (NOW - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        return {"number": n, "title": title, "bodyText": body, "createdAt": t, "updatedAt": t,
+        return {"number": n, "title": title, "bodyText": body, "body": body, "createdAt": t, "updatedAt": t,
+                "authorAssociation": assoc, "author": {"__typename": "User"},
                 "assignees": {"totalCount": 0}, "labels": {"nodes": [{"name": l} for l in labels]},
                 "comments": {"totalCount": 2, "nodes": []}, "reactions": {"totalCount": react},
                 "timelineItems": {"nodes": []}}
@@ -381,7 +520,11 @@ def fixture():
             issue(101, "Continuous batching stalls under mixed prompt lengths", long, ["performance"], 14, 2),
             issue(102, "Typo in README quickstart", "s/recieve/receive", ["documentation"], 0, 1),
             issue(103, "Support speculative decoding with draft models", long, ["enhancement", "help wanted"], 22, 6),
-            issue(104, "How do I set the port?", "Which flag sets the port?", ["question"], 0, 1)]}),
+            issue(104, "How do I set the port?", "Which flag sets the port?", ["question"], 0, 1),
+            issue(105, "[RFC] Multi-GPU partial expert offload", long + " An initial implementation has been proposed in #317.", [], 30, 2),
+            issue(106, "Scheduler deadlocks when a replica restarts mid-batch", long, ["bug", "needs triage"], 5, 2),
+            issue(107, "Add per-tenant rate limiting to the batch queue", long, ["enhancement", "priority: medium"], 4, 5, "MEMBER"),
+            issue(108, "Streaming responses drop the final token", long + " I'd be happy to submit a PR.", ["bug"], 6, 2)]}),
         "demo/oxidb": dict(base, nameWithOwner="demo/oxidb", description="Embedded columnar database in Rust",
                            stargazerCount=3100, primaryLanguage={"name": "Rust"}, issues={"nodes": [
             issue(7, "Implement vectorized hash join from the paper", long, ["enhancement"], 9, 4),
@@ -427,7 +570,7 @@ def main():
                 targets.setdefault(n, {"lane": LANES.index(lane_name), "vel": None})
 
     # 2. repo gate + issue gate
-    repos, cands, dropped = {}, [], 0
+    repos, cands, dropped, rejected = {}, [], 0, {}
     for full, t in targets.items():
         memo = cache["repos"].get(full)
         if memo and memo.get("v") == SCORE_V and memo["t"] > now_s - 3 * 86400:  # known closed-door repo: skip the API call
@@ -438,27 +581,43 @@ def main():
         except Exception as e:
             log(f"  {full}: fetch failed ({e})")
             continue
-        why_not = repo_verdict(r)
+        seeded = t["vel"] is None
+        fit = domain_fit(r.get("description") or "", [n["topic"]["name"] for n in r["repositoryTopics"]["nodes"]],
+                         (r.get("primaryLanguage") or {}).get("name"))
+        why_not = repo_verdict(r, seeded)
+        if not why_not and not seeded and fit < 0.3:
+            why_not = f"end-user app, not infra/systems (fit {fit:.2f})"
         if why_not:
             log(f"  drop {full}: {why_not}")
             cache["repos"][full] = {"t": now_s, "why": why_not, "v": SCORE_V}
             dropped += 1
             continue
         age = max(14, (NOW - _dt(r["createdAt"])).days)
-        vel = t["vel"] if t["vel"] is not None else r["stargazerCount"] / age
-        repos[full] = {"stars": r["stargazerCount"], "vel": vel, "lane": t["lane"],
+        vel = r["stargazerCount"] / age if seeded else t["vel"]
+        cred = repo_credibility(r["stargazerCount"], age, vel, outside_merges(r), seeded, fit)
+        repos[full] = {"stars": r["stargazerCount"], "vel": vel, "lane": t["lane"], "cred": cred,
                        "lang": (r.get("primaryLanguage") or {}).get("name") or "?",
                        "desc": (r.get("description") or "")[:110]}
         for i in r["issues"]["nodes"]:
             if issue_open_for_grabs(i):
-                cands.append({
+                c = {
                     "repo": full, "num": i["number"], "title": i["title"][:140], "body": i["bodyText"] or "",
+                    "body_md": i.get("body") or "", "assoc": i.get("authorAssociation"), "cred": cred,
+                    "is_bot": (i.get("author") or {}).get("__typename") == "Bot",
+                    "maint_replied": any(cm.get("authorAssociation") in MAINT for cm in i["comments"]["nodes"]),
                     "labels": [l["name"] for l in i["labels"]["nodes"]], "updated": i["updatedAt"],
                     "created_h": int(_dt(i["createdAt"]).timestamp() // 3600),
                     "age_days": (NOW - _dt(i["createdAt"])).days, "comments": i["comments"]["totalCount"],
                     "reactions": i["reactions"]["totalCount"], "vel": vel, "lane": t["lane"],
-                    "desc": repos[full]["desc"]})
-    log(f"{len(repos)} repos open to outsiders, {dropped} dropped, {len(cands)} unclaimed issues")
+                    "desc": repos[full]["desc"]}
+                c["tier"], c["reason"] = actionability(c)
+                if c["tier"] is None:
+                    rejected[c["reason"].split(":")[0]] = rejected.get(c["reason"].split(":")[0], 0) + 1
+                else:
+                    cands.append(c)
+    log(f"{len(repos)} repos open to outsiders, {dropped} dropped, {len(cands)} actionable issues")
+    log("  not pick-up-able:", ", ".join(f"{k} {v}" for k, v in sorted(rejected.items(), key=lambda kv: -kv[1])) or "none")
+    log("  tiers:", ", ".join(f"{TIERS[n]} {sum(c['tier'] == n for c in cands)}" for n in range(3)))
 
     # 3. score, reusing cached verdicts for issues that have not changed
     def stale(c):
@@ -481,13 +640,8 @@ def main():
         c["sc"], c["first"] = entry["sc"], entry["first"]
         c["pri"] = priority(c, c["sc"])
 
-    # 4. rank: docs last, then by priority; cap per repo for variety
-    cands.sort(key=lambda c: (c["sc"]["k"] == "docs", -c["pri"]))
-    per_repo, ranked = {}, []
-    for c in cands:
-        per_repo[c["repo"]] = per_repo.get(c["repo"], 0) + 1
-        if per_repo[c["repo"]] <= MAX_PER_REPO and len(ranked) < MAX_FEED:
-            ranked.append(c)
+    # 4. rank: docs last, then by priority; cap per repo, unvetted only as a tail
+    ranked = rank(cands)
 
     # 5. compact feed: string tables + positional rows, gzipped
     names = sorted({c["repo"] for c in ranked})
@@ -506,12 +660,12 @@ def main():
         extra = [tag(l) for l in c["labels"] if re.search(r"help.?wanted|good.?first|rfc|perf|epic", l, re.I)][:3]
         rows.append([names.index(c["repo"]), c["num"], c["title"], c["pri"], sc["s"],
                      KINDS.index(sc["k"]) if sc["k"] in KINDS else 0, EFFORTS.index(sc["e"]) if sc["e"] in EFFORTS else 1,
-                     tag(sc["sec"]), extra, c["created_h"], c["comments"], c["reactions"], sc["why"],
-                     1 if c["first"] > last_run else 0])
+                     tag(sc["sec"]), extra, c["created_h"], c["comments"], c["reactions"],
+                     f"{c['reason']} / {sc['why']}"[:90], 1 if c["first"] > last_run else 0, c["tier"]])
     runs = [r for r in prev_feed.get("runs", []) if r[0] * 3600 > cutoff]
     runs.append([now_s // 3600, len(targets), len(repos), len(ranked), sum(r[13] for r in rows),
                  rows[0][3] if rows else 0])
-    feed = {"v": 1, "gen": now_s, "scorer": scorer_name, "kinds": KINDS, "efforts": EFFORTS, "lanes": LANES,
+    feed = {"v": 1, "gen": now_s, "scorer": scorer_name, "kinds": KINDS, "efforts": EFFORTS, "lanes": LANES, "tiers": TIERS,
             "tags": tags,
             "repos": [[n, repos[n]["stars"], int(repos[n]["vel"] * 10), repos[n]["lang"], repos[n]["lane"],
                        repos[n]["desc"]] for n in names],

@@ -28,8 +28,8 @@ text{font-family:Consolas,'Cascadia Mono','DejaVu Sans Mono','Liberation Mono','
 <text x="98" y="266" fill="#c9ffd9" font-size="32" font-weight="700" text-anchor="middle">240</text>
 <text x="98" y="290" fill="#2f7a4f" font-size="12" text-anchor="middle" letter-spacing="3">SIGNALS</text>
 <rect x="172" y="228" width="148" height="74" fill="#07100b" stroke="#17402a"/>
-<text x="246" y="266" fill="#c9ffd9" font-size="32" font-weight="700" text-anchor="middle">240</text>
-<text x="246" y="290" fill="#2f7a4f" font-size="12" text-anchor="middle" letter-spacing="3">NEW</text>
+<text x="246" y="266" fill="#c9ffd9" font-size="32" font-weight="700" text-anchor="middle">12</text>
+<text x="246" y="290" fill="#2f7a4f" font-size="12" text-anchor="middle" letter-spacing="3">READY</text>
 <rect x="320" y="228" width="148" height="74" fill="#07100b" stroke="#17402a"/>
 <text x="394" y="266" fill="#c9ffd9" font-size="32" font-weight="700" text-anchor="middle">96</text>
 <text x="394" y="290" fill="#2f7a4f" font-size="12" text-anchor="middle" letter-spacing="3">TOP</text>

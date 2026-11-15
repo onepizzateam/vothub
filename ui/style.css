@@ -145,6 +145,9 @@ main { display: flex; flex-direction: column; min-height: 0; }
 .tag { font-size: .72em; border: 1px solid var(--line); color: var(--dim); padding: 0 .45em; letter-spacing: .06em; text-transform: uppercase; text-shadow: none; }
 .tag.kind { color: var(--fg); border-color: var(--dim); }
 .tag.lang { color: var(--amber); border-color: #6b4d1c; }
+.tag.ready { color: #100; background: var(--fg); border-color: var(--fg); }
+.tag.vetted { color: var(--hot); border-color: var(--fg); }
+.tag.raw { color: var(--dim); border-style: dashed; }
 .tag.new { color: #100; background: var(--amber); border-color: var(--amber); }
 .item .age { font-size: .8em; color: var(--dim); white-space: nowrap; text-align: right; padding-top: .2em; }
 .item.docs { opacity: .5; }

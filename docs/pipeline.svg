@@ -33,12 +33,12 @@ text{font-family:Consolas,'Cascadia Mono','DejaVu Sans Mono','Liberation Mono','
 <rect x="54" y="174" width="572" height="42" fill="none" stroke="#17402a"/>
 <text x="70" y="201" class="d" font-size="15" text-anchor="start" >02</text>
 <text x="108" y="201" class="h" font-size="16" text-anchor="start" letter-spacing="2" font-weight="700">GATE</text>
-<text x="250" y="201" class="g" font-size="15" text-anchor="start" >do outsiders actually get merged?</text>
+<text x="250" y="201" class="g" font-size="15" text-anchor="start" >infra, and outsiders get merged?</text>
 <rect class="st" style="animation-delay:2.6s" x="54" y="226" width="572" height="42" fill="#72f5a2"/>
 <rect x="54" y="226" width="572" height="42" fill="none" stroke="#17402a"/>
 <text x="70" y="253" class="d" font-size="15" text-anchor="start" >03</text>
 <text x="108" y="253" class="h" font-size="16" text-anchor="start" letter-spacing="2" font-weight="700">FILTER</text>
-<text x="250" y="253" class="g" font-size="15" text-anchor="start" >open, unassigned, no PR, unclaimed</text>
+<text x="250" y="253" class="g" font-size="15" text-anchor="start" >unclaimed, not an RFC, not blocked</text>
 <rect class="st" style="animation-delay:3.9s" x="54" y="278" width="572" height="42" fill="#72f5a2"/>
 <rect x="54" y="278" width="572" height="42" fill="none" stroke="#17402a"/>
 <text x="70" y="305" class="d" font-size="15" text-anchor="start" >04</text>
@@ -48,7 +48,7 @@ text{font-family:Consolas,'Cascadia Mono','DejaVu Sans Mono','Liberation Mono','
 <rect x="54" y="330" width="572" height="42" fill="none" stroke="#17402a"/>
 <text x="70" y="357" class="d" font-size="15" text-anchor="start" >05</text>
 <text x="108" y="357" class="h" font-size="16" text-anchor="start" letter-spacing="2" font-weight="700">RANK</text>
-<text x="250" y="357" class="g" font-size="15" text-anchor="start" >substance first, docs always last</text>
+<text x="250" y="357" class="g" font-size="15" text-anchor="start" >maintainer-ready first, docs last</text>
 <line x1="640" y1="228" x2="820" y2="228" stroke="#2f7a4f" stroke-width="2" stroke-dasharray="6 6"/>
 <path d="M820 228 l-14 -8 v16 z" fill="#2f7a4f"/>
 <text x="730" y="206" class="g" font-size="14" text-anchor="middle" >feed.json.gz</text>
