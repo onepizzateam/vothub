@@ -52,6 +52,11 @@ CASES = [  # name, issue, expected
     ("plain new bug, nobody replied", issue(), "raw"),
     ("maintainer says working on it", issue([("m", "MEMBER", "We're working on Linux Vulkan support now, and it should be ready soon")]), "dropped:maintainer declined or asked for info"),
     ("maintainer: file it upstream", issue([("m", "MEMBER", "It sounds like an OpenBSD bug, please file a bug with OpenBSD")]), "dropped:maintainer declined or asked for info"),
+    ("risingwave: interested in working on Phase 1", issue([("d", "NONE", "Hi, I'd be interested in working on the Phase 1 scope of this issue. My plan would be to reproduce first.")], labels=["good first issue"]), "dropped:claim/fixed/upstream"),
+    ("risingwave: interested in exploring", issue([("x", "CONTRIBUTOR", "Hi, I am interested in exploring this. I traced the current implementation")], labels=["good first issue"]), "dropped:claim/fixed/upstream"),
+    ("polars: hype title", issue(title="An enhanecment that boosts Polars's performance by 15-30%!!"), "dropped:outreach or promotion, not a task"),
+    ("autogen: promo title", issue(title="Open-source MCP runtime behavior security tools - RFC 9334 aligned"), "dropped:outreach or promotion, not a task"),
+    ("plain thanks comment is not a claim", issue([("o", "NONE", "Thanks for the report, I can reproduce this on 0.2.")]), "raw"),
 ]
 bad = 0
 for name, i, want in CASES:

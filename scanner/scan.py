@@ -209,6 +209,15 @@ CLAIM = re.compile(
     r"(can|may|could) i (take|work on|pick|tackle|be assigned|investigate|look into|try|help (with|fix))|"
     r"i('ll| will) (look into|investigate|try|see what)|let me (take|try|look into|investigate|work on)|"
     r"i (have|opened|submitted|created|pushed) (a |an )?(pr|pull request|fix|patch|draft))\b|/assign", re.I)
+CLAIM2 = re.compile(  # softer ways of saying 'this one is mine'
+    r"(interested|happy|keen|willing) (in|to) (working on|work on|taking|take|exploring|explore|tackling|tackle|looking (into|at)|"
+    r"look (into|at)|investigating|investigate|picking|pick|implementing|implement|contributing|contribute|helping|help)|"
+    r"i('m| am) (looking|digging|diving) (into|at|in)|my (plan|approach|idea) (would be|is)|"
+    r"(i|we)('ll| will| can) (start|begin) (by|with)|i (started|began|am starting) (working|looking)|"
+    r"(i|we) (would|'d) (like|love) to (work|help|take|try|look)|may i (work|take|try|look)", re.I)
+HYPE = re.compile(
+    r"!!|\b(boosts?|skyrockets?|supercharges?|doubles?|10x) .{0,40}\d+ ?%|rfc \d{3,5} aligned|\bgame.?changer|"
+    r"open-source .{0,30}(tools?|toolkit|platform)$", re.I)
 SKIP_LABELS = re.compile(r"wontfix|won't fix|invalid|duplicate|stale|blocked|needs.?repro|"
                          r"waiting|on.?hold|spam|not planned", re.I)
 
@@ -329,7 +338,7 @@ def issue_open_for_grabs(i):
                 and me and not (src.get("url") or "").startswith(me + "/")):
             return False  # a participant already took it to another project: the cause is not here
     # anyone in the thread claiming it, offering a PR, or reporting it handled
-    return not any(CLAIM.search(t) or DONE.search(t) or OWNED.search(t)
+    return not any(CLAIM.search(t) or CLAIM2.search(t) or DONE.search(t) or OWNED.search(t)
                    for t in ((c["bodyText"] or "") for c in i["comments"]["nodes"]))
 
 
@@ -457,7 +466,7 @@ def actionability(c):
     labels, title, body = c["labels"], c["title"], c.get("body_md") or c["body"]
     if c.get("is_bot"):
         return None, "filed by a bot"
-    if OUTREACH.search(title + " " + (c["body"] or "")[:1500]) and c.get("assoc") not in MAINT:
+    if c.get("assoc") not in MAINT and (OUTREACH.search(title + " " + (c["body"] or "")[:1500]) or HYPE.search(title)):
         return None, "outreach or promotion, not a task"
     blocked = next((l for l in labels if BLOCKED_LABEL.search(l)), None)
     if blocked:
@@ -537,7 +546,7 @@ TRIVIAL = ["fix a small typo", "minor wording change", "bump a dependency versio
 
 JUNK = re.compile(r"airdrop|micro-?payments?|boost your|giveaway|backlinks?|\bseo\b|sponsor(ed|ship)|"
                   r"promo(tion| code)|earn (money|crypto|rewards)|listed your (tool|project)", re.I)
-SCORE_V = 6  # bump when scoring rules change so cached verdicts are recomputed
+SCORE_V = 7  # bump when scoring rules change so cached verdicts are recomputed
 
 
 def issue_text(c):
