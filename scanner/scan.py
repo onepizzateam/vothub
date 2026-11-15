@@ -30,7 +30,8 @@ MAX_RAW = 40          # unvetted issues are admitted only as a small tail
 TIERS = ["ready", "vetted", "raw"]
 KINDS = ["feature", "perf", "bug", "research", "infra", "refactor", "test", "question", "docs"]
 EFFORTS = ["S", "M", "L"]
-LANES = ["ai-infra", "systems"]
+LANES = ["agents-memory", "serving-training"]
+STACK_LANGS = {"Python", "TypeScript", "Jupyter Notebook"}  # what the resume is built on; everything else is out
 
 
 def log(*a):
@@ -145,15 +146,16 @@ def fetch_repo(full_name):
 NOISE = re.compile(r"awesome|curated|roadmap|interview|tutorial|course|cheat.?sheet|"
                    r"\bbooks?\b|papers? list|leetcode|prompts? collection|free.?api", re.I)
 
-SEARCHES = [  # (lane, query fragment)
-    (0, "topic:llm stars:>400"), (0, "topic:ai-agents stars:>300"), (0, "topic:agents stars:>400"),
-    (0, "topic:llm-inference stars:>150"), (0, "topic:inference stars:>300"), (0, "topic:rag stars:>400"),
-    (0, "topic:mlops stars:>300"), (0, "topic:model-serving stars:>100"), (0, "topic:mcp stars:>400"),
-    (0, "topic:machine-learning stars:>800"), (0, "topic:gpu stars:>300"),
-    (1, "language:Rust stars:>400"), (1, "language:C++ stars:>500"), (1, "language:Zig stars:>250"),
-    (1, "topic:database language:Rust stars:>150"), (1, "topic:compiler stars:>250"),
-    (1, "topic:webassembly stars:>250"), (1, "topic:distributed-systems stars:>250"),
-    (1, "topic:research language:Rust stars:>80"), (1, "topic:runtime stars:>300"),
+SEARCHES = [  # (lane, query fragment): AI only, on the Python / TypeScript stack
+    (0, "topic:ai-agents language:Python stars:>200"), (0, "topic:agents language:Python stars:>300"),
+    (0, "topic:agent-memory stars:>80"), (0, "topic:memory topic:llm stars:>150"), (0, "topic:mcp language:Python stars:>300"),
+    (0, "topic:mcp language:TypeScript stars:>400"), (0, "topic:rag language:Python stars:>300"),
+    (0, "topic:llmops stars:>200"), (0, "topic:evaluation topic:llm stars:>150"), (0, "topic:multi-agent stars:>200"),
+    (0, "topic:ai-agents language:TypeScript stars:>400"), (0, "topic:knowledge-graph topic:llm stars:>150"),
+    (1, "topic:llm-inference language:Python stars:>150"), (1, "topic:llm-serving stars:>100"),
+    (1, "topic:inference language:Python stars:>300"), (1, "topic:fine-tuning language:Python stars:>300"),
+    (1, "topic:reinforcement-learning topic:llm stars:>200"), (1, "topic:quantization language:Python stars:>150"),
+    (1, "topic:mlops language:Python stars:>300"), (1, "topic:distributed-training stars:>150"),
 ]
 
 
@@ -549,7 +551,7 @@ TRIVIAL = ["fix a small typo", "minor wording change", "bump a dependency versio
 
 JUNK = re.compile(r"airdrop|micro-?payments?|boost your|giveaway|backlinks?|\bseo\b|sponsor(ed|ship)|"
                   r"promo(tion| code)|earn (money|crypto|rewards)|listed your (tool|project)", re.I)
-SCORE_V = 7  # bump when scoring rules change so cached verdicts are recomputed
+SCORE_V = 8  # bump when scoring rules change so cached verdicts are recomputed
 
 
 def issue_text(c):
@@ -788,6 +790,9 @@ def main():
         fit = domain_fit(r.get("description") or "", [n["topic"]["name"] for n in r["repositoryTopics"]["nodes"]],
                          (r.get("primaryLanguage") or {}).get("name"))
         why_not = repo_verdict(r, seeded)
+        lang = (r or {}).get("primaryLanguage") or {}
+        if not why_not and not args.fixture and lang.get("name") not in STACK_LANGS:
+            why_not = f"{lang.get('name') or 'unknown'} repo, not on the Python/TypeScript AI stack"
         if not why_not and not seeded and fit < 0.5:
             why_not = f"end-user app, not infra/systems (fit {fit:.2f})"
         if why_not:

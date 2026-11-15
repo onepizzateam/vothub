@@ -387,7 +387,7 @@ function mockInvoke() {
   const kinds = ["feature", "perf", "bug", "research", "infra", "refactor", "test", "question", "docs"];
   const pick = [1, 0, 3, 2, 1, 2, 1, 2, 7, 8, 8];
   const feed = {
-    v: 1, gen: now() - 2400, scorer: "embed:bge-small-en-v1.5", kinds, efforts: ["S", "M", "L"], lanes: ["ai-infra", "systems"], tiers: ["ready", "vetted", "raw"],
+    v: 1, gen: now() - 2400, scorer: "embed:bge-small-en-v1.5", kinds, efforts: ["S", "M", "L"], lanes: ["agents-memory", "serving-training"], tiers: ["ready", "vetted", "raw"],
     tags: ["inference-serving", "databases", "agents", "runtime", "help wanted"],
     repos: [["demo/fastserve", 9400, 783, "Python", 0, ""], ["demo/oxidb", 3100, 258, "Rust", 1, ""], ["demo/cachemesh", 5200, 91, "C++", 0, ""]],
     issues: titles.map((t, n) => [n % 3, 100 + n, t, Math.max(8, 93 - n * 7 - (n > 7 ? 30 : 0)), 90 - n * 6, pick[n], n < 4 ? 2 : 1,

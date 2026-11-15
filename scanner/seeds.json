@@ -1,46 +1,32 @@
 {
-  "ai-infra": [
-    "crewAIInc/crewAI",
-    "pydantic/pydantic-ai",
-    "vllm-project/vllm",
-    "sgl-project/sglang",
-    "ray-project/ray",
-    "kvcache-ai/Mooncake",
-    "NVIDIA/TensorRT",
-    "huggingface/text-generation-inference",
-    "ggml-org/llama.cpp",
-    "BerriAI/litellm",
-    "langchain-ai/langgraph",
-    "microsoft/autogen",
-    "triton-inference-server/server",
-    "skypilot-org/skypilot"
+  "agents-memory": [
+    "langchain-ai/langchain", "langchain-ai/langgraph", "langchain-ai/langchainjs", "langchain-ai/langgraphjs",
+    "langchain-ai/open_deep_research", "crewAIInc/crewAI", "pydantic/pydantic-ai", "openai/openai-agents-python",
+    "openai/openai-agents-js", "huggingface/smolagents", "agno-agi/agno", "run-llama/llama_index",
+    "deepset-ai/haystack", "stanfordnlp/dspy", "camel-ai/camel", "camel-ai/owl", "google/adk-python",
+    "strands-agents/sdk-python", "mastra-ai/mastra", "vercel/ai", "BerriAI/litellm", "browser-use/browser-use",
+    "All-Hands-AI/OpenHands", "SWE-agent/SWE-agent", "Aider-AI/aider", "microsoft/agent-framework",
+    "letta-ai/letta", "mem0ai/mem0", "getzep/graphiti", "topoteretes/cognee", "MemTensor/MemOS",
+    "modelcontextprotocol/python-sdk", "modelcontextprotocol/typescript-sdk", "PrefectHQ/fastmcp",
+    "microsoft/graphrag", "infiniflow/ragflow", "HKUDS/LightRAG", "chroma-core/chroma", "docling-project/docling",
+    "Unstructured-IO/unstructured", "explodinggradients/ragas", "confident-ai/deepeval", "langfuse/langfuse",
+    "Arize-ai/phoenix", "comet-ml/opik", "promptfoo/promptfoo", "EleutherAI/lm-evaluation-harness",
+    "guardrails-ai/guardrails", "NVIDIA/NeMo-Guardrails", "567-labs/instructor", "dottxt-ai/outlines",
+    "guidance-ai/guidance", "AgentOps-AI/agentops", "langgenius/dify", "e2b-dev/E2B", "microsoft/markitdown",
+    "TransformerOptimus/SuperAGI", "OpenBMB/XAgent", "agentscope-ai/agentscope", "volcengine/MineContext",
+    "embedchain/embedchain", "superagent-ai/superagent", "posthog/posthog-python", "traceloop/openllmetry"
   ],
-  "systems": [
-    "huggingface/candle",
-    "tracel-ai/burn",
-    "astral-sh/uv",
-    "astral-sh/ruff",
-    "apache/datafusion",
-    "lancedb/lance",
-    "tokio-rs/tokio",
-    "bevyengine/bevy",
-    "pola-rs/polars",
-    "risingwavelabs/risingwave",
-    "tursodatabase/turso",
-    "zed-industries/zed",
-    "ziglang/zig",
-    "duckdb/duckdb"
+  "serving-training": [
+    "vllm-project/vllm", "sgl-project/sglang", "ray-project/ray", "LMCache/LMCache", "vllm-project/llm-compressor",
+    "vllm-project/production-stack", "skypilot-org/skypilot", "bentoml/BentoML", "xorbitsai/inference",
+    "InternLM/lmdeploy", "huggingface/transformers", "huggingface/peft", "huggingface/trl",
+    "huggingface/accelerate", "huggingface/datasets", "huggingface/text-generation-inference",
+    "unslothai/unsloth", "axolotl-ai-cloud/axolotl", "hiyouga/LLaMA-Factory", "pytorch/torchtune", "pytorch/ao",
+    "volcengine/verl", "OpenRLHF/OpenRLHF", "deepspeedai/DeepSpeed", "NVIDIA/NeMo", "NVIDIA/TensorRT-LLM",
+    "flashinfer-ai/flashinfer", "Dao-AILab/flash-attention", "mlflow/mlflow", "wandb/weave", "kserve/kserve",
+    "NVIDIA/Model-Optimizer", "huggingface/lighteval", "huggingface/optimum", "ModelTC/LightLLM",
+    "modal-labs/modal-client", "predibase/lorax", "mlc-ai/mlc-llm", "kvcache-ai/ktransformers"
   ],
-  "block": [
-    "NVIDIA/TensorRT",
-    "Niko1221/Strata",
-    "DeusData/codebase-memory-mcp"
-  ],
-  "off_lane": [
-    "zed-industries/zed",
-    "bevyengine/bevy",
-    "heygen-com/hyperframes",
-    "ziglang/zig",
-    "MemPalace/mempalace"
-  ]
+  "block": ["NVIDIA/TensorRT", "Niko1221/Strata", "DeusData/codebase-memory-mcp", "MemPalace/mempalace"],
+  "off_lane": []
 }
