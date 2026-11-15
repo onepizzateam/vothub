@@ -189,14 +189,16 @@ INFRA_WORDS = re.compile(
     r"inference|serving|\bengine\b|runtime|framework|\bsdk\b|library|database|query|\bsql\b|compiler|tensor|"
     r"deep learning|distributed|gateway|\bproxy\b|lakehouse|package manager|kernel|\bgpu\b|cuda|protocol|"
     r"orchestrat|scheduler|storage|vector|embedding|training|quantiz|wasm|webassembly|allocator|sandbox|"
-    r"foundation model|toolkit|compute|emulator|headless|code intelligence|memory system|data ?frame|"
+    r"foundation model|toolkit|compute|headless|code intelligence|memory system|data ?frame|"
     r"file format|parser|interpreter|virtual machine|\brpc\b|consensus|key-value|cache|operator", re.I)
 APP_WORDS = re.compile(
     r"\bapps?\b|tracker|dashboard|video editor|photo editor|word processor|marketing|\bskills?\b|"
     r"account (manager|switch)|switcher|one-click|tutor|viral|menu bar|diagram|design vocabulary|alternative to|"
     r"(for|control|manage) (\w+ code|codex|cursor)\b|coding agents? (with|from)|\bnews\b|\bgym\b|at work|"
     r"wallpaper|template|boilerplate|awesome|prompts?\b|personal assistant|browser extension|\bui kit\b|"
-    r"api key|free model|subscription|launcher|\bclient\b|chatbot|companion|plugin for", re.I)
+    r"api key|free model|subscription|launcher|\bclient\b|chatbot|companion|plugin for|emulator|nintendo|"
+    r"playstation|\bps[45]\b|\bgames?\b|trading|\bpersonal\b|codex|copilot|windsurf|enhanced tool|"
+    r"reader and editor|\bpdf\b|logitech|\bmouse\b|wallet|crypto|social|e-?commerce|\bcms\b|blog", re.I)
 CORE_LANGS = {"Rust", "C++", "C", "Zig", "Go", "Python", "Cuda", "Assembly", "Mojo"}
 
 
@@ -295,6 +297,21 @@ OWNED = re.compile(  # the author says they are doing it themselves
     r"(proposed|implemented|opened|submitted|available|addressed) in #\d+|/pull/\d+|"
     r"\b(my|our) (pr|pull request|branch|fork|prototype|patch)\b|pr (is )?(incoming|coming|to follow)|"
     r"will follow up with (a )?(pr|patch)", re.I)
+MAINT_INVITE = re.compile(
+    r"prs? (are |is |would be |very |more than )*(welcome|appreciated)|"
+    r"happy to (review|accept|merge|take|look at) (a |the |any )?(pr|pull request|patch|contribution)|"
+    r"contributions? (are |is |would be |very )*(welcome|appreciated)|"
+    r"feel free to (open|submit|send|work on|take|pick|contribute|put up|give it)|"
+    r"would (accept|welcome|merge|review|take) (a |the |any )?(pr|pull request|patch|contribution)|"
+    r"(want|like|care|interested) to (open|submit|send|contribute|put up) (a |the )?(pr|pull request|patch)|"
+    r"help (is |would be )?(wanted|welcome|appreciated)|open to (a |the )?(pr|pull request|contribution)", re.I)
+MAINT_DECLINE = re.compile(
+    r"no plans?\b|not planned|won'?t (fix|implement|support|be |add)|out of scope|not a priority|not something we|"
+    r"can(no|')t reproduce|unable to reproduce|could ?n[o']t reproduce|need more (info|information|details)|"
+    r"please (provide|share|attach|post)|(can|could) you (share|provide|post|attach|try)|closing (this|as)|"
+    r"works as (intended|designed|expected)|by design|not a bug|expected behaviou?r|already (tracked|covered) in", re.I)
+REPORT_TITLE = re.compile(r"performance report|\bvs\.? .*comparison|comparison$|^call for\b|meet-?up|"
+                          r"\bsurvey\b|release notes|changelog|\bamas?\b", re.I)
 COMMIT_STYLE = re.compile(r"^(fix|feat|chore|ci|refactor|perf|test|build|docs|style)(\([^)]*\))?!?:", re.I)
 WILLING_BOX = re.compile(
     r"\[x\][^\n]{0,90}(willing|submit a (pr|pull request)|i can (help|contribute)|i would like to work|i'd like to work)", re.I)
@@ -310,12 +327,19 @@ def actionability(c):
         return None, "blocked label: " + blocked.lower()
     if OWNED.search(body) or WILLING_BOX.search(body):
         return None, "author is doing it"
+    if sum(ord(ch) > 0x2E7F for ch in title) > 0.3 * max(1, len(title)):
+        return None, "not in english"
+    said = c.get("maint_text") or ""
+    if said and MAINT_DECLINE.search(said):
+        return None, "maintainer declined or asked for info"
     ready = next((l for l in labels if READY_LABEL.search(l)), None)
     if ready:
         return 0, ready.lower()
     not_task = next((l for l in labels if NOT_TASK_LABEL.search(l)), None)
-    if not_task or NOT_TASK_TITLE.search(title):
+    if not_task or NOT_TASK_TITLE.search(title) or REPORT_TITLE.search(title):
         return None, "discussion, not a task"
+    if said and MAINT_INVITE.search(said):
+        return 0, "maintainer invited a pr"
     vetted = next((l for l in labels if VETTED_LABEL.search(l)), None)
     if vetted:
         return 1, vetted.lower()
@@ -365,7 +389,7 @@ TRIVIAL = ["fix a small typo", "minor wording change", "bump a dependency versio
 
 JUNK = re.compile(r"airdrop|micro-?payments?|boost your|giveaway|backlinks?|\bseo\b|sponsor(ed|ship)|"
                   r"promo(tion| code)|earn (money|crypto|rewards)|listed your (tool|project)", re.I)
-SCORE_V = 3  # bump when scoring rules change so cached verdicts are recomputed
+SCORE_V = 4  # bump when scoring rules change so cached verdicts are recomputed
 
 
 def issue_text(c):
@@ -427,6 +451,10 @@ def _finish(c, kind, sector, base):
     elif kind not in ("perf", "research") and re.search(
             r"\[\s*(feature|feat|enhancement)( request)?\s*\]|^(feature request|feat\b|proposal)", title):
         kind = "feature"
+    if kind in ("docs", "question") and not re.search(
+            r"\bdocs?\b|documentation|readme|typo|docstring|\bguide\b|tutorial|how (do|to|can)|\?\s*$|question|usage",
+            title + " " + labels):
+        kind = "bug" if re.search(r"bug|crash|fail|error|panic|regression|broken|wrong", title + " " + labels) else "feature"
     s = base + min(9, len(c["body"]) / 320) + min(8, c["reactions"] * 2) + min(6, c["comments"])
     if re.search(r"enhancement|feature|perf|epic", labels):
         s += 5
@@ -585,7 +613,7 @@ def main():
         fit = domain_fit(r.get("description") or "", [n["topic"]["name"] for n in r["repositoryTopics"]["nodes"]],
                          (r.get("primaryLanguage") or {}).get("name"))
         why_not = repo_verdict(r, seeded)
-        if not why_not and not seeded and fit < 0.3:
+        if not why_not and not seeded and fit < 0.5:
             why_not = f"end-user app, not infra/systems (fit {fit:.2f})"
         if why_not:
             log(f"  drop {full}: {why_not}")
@@ -605,6 +633,8 @@ def main():
                     "body_md": i.get("body") or "", "assoc": i.get("authorAssociation"), "cred": cred,
                     "is_bot": (i.get("author") or {}).get("__typename") == "Bot",
                     "maint_replied": any(cm.get("authorAssociation") in MAINT for cm in i["comments"]["nodes"]),
+                    "maint_text": " ".join((cm.get("bodyText") or "")[:1500] for cm in i["comments"]["nodes"]
+                                           if cm.get("authorAssociation") in MAINT),
                     "labels": [l["name"] for l in i["labels"]["nodes"]], "updated": i["updatedAt"],
                     "created_h": int(_dt(i["createdAt"]).timestamp() // 3600),
                     "age_days": (NOW - _dt(i["createdAt"])).days, "comments": i["comments"]["totalCount"],
