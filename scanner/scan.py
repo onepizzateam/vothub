@@ -31,7 +31,7 @@ TIERS = ["ready", "vetted", "raw"]
 KINDS = ["feature", "perf", "bug", "research", "infra", "refactor", "test", "question", "docs"]
 EFFORTS = ["S", "M", "L"]
 LANES = ["agents-memory", "serving-training"]
-STACK_LANGS = {"Python", "TypeScript", "Jupyter Notebook"}  # what the resume is built on; everything else is out
+
 
 
 def log(*a):
@@ -146,16 +146,32 @@ def fetch_repo(full_name):
 NOISE = re.compile(r"awesome|curated|roadmap|interview|tutorial|course|cheat.?sheet|"
                    r"\bbooks?\b|papers? list|leetcode|prompts? collection|free.?api", re.I)
 
-SEARCHES = [  # (lane, query fragment): AI only, on the Python / TypeScript stack
-    (0, "topic:ai-agents language:Python stars:>200"), (0, "topic:agents language:Python stars:>300"),
-    (0, "topic:agent-memory stars:>80"), (0, "topic:memory topic:llm stars:>150"), (0, "topic:mcp language:Python stars:>300"),
-    (0, "topic:mcp language:TypeScript stars:>400"), (0, "topic:rag language:Python stars:>300"),
-    (0, "topic:llmops stars:>200"), (0, "topic:evaluation topic:llm stars:>150"), (0, "topic:multi-agent stars:>200"),
-    (0, "topic:ai-agents language:TypeScript stars:>400"), (0, "topic:knowledge-graph topic:llm stars:>150"),
-    (1, "topic:llm-inference language:Python stars:>150"), (1, "topic:llm-serving stars:>100"),
-    (1, "topic:inference language:Python stars:>300"), (1, "topic:fine-tuning language:Python stars:>300"),
-    (1, "topic:reinforcement-learning topic:llm stars:>200"), (1, "topic:quantization language:Python stars:>150"),
-    (1, "topic:mlops language:Python stars:>300"), (1, "topic:distributed-training stars:>150"),
+SEARCHES = [  # (lane, query fragment): AI / ML work in any language
+    (0, 'topic:ai-agents stars:>200'),
+    (0, 'topic:agents stars:>300'),
+    (0, 'topic:agent-memory stars:>80'),
+    (0, 'topic:memory topic:llm stars:>150'),
+    (0, 'topic:mcp stars:>300'),
+    (0, 'topic:rag stars:>300'),
+    (0, 'topic:llmops stars:>200'),
+    (0, 'topic:evaluation topic:llm stars:>150'),
+    (0, 'topic:multi-agent stars:>200'),
+    (0, 'topic:knowledge-graph topic:llm stars:>150'),
+    (0, 'topic:observability topic:llm stars:>150'),
+    (0, 'topic:vector-database stars:>200'),
+    (0, 'topic:guardrails stars:>100'),
+    (1, 'topic:llm-inference stars:>150'),
+    (1, 'topic:llm-serving stars:>100'),
+    (1, 'topic:inference stars:>300'),
+    (1, 'topic:fine-tuning stars:>300'),
+    (1, 'topic:reinforcement-learning topic:llm stars:>200'),
+    (1, 'topic:quantization stars:>150'),
+    (1, 'topic:mlops stars:>300'),
+    (1, 'topic:distributed-training stars:>150'),
+    (1, 'topic:machine-learning language:Rust stars:>200'),
+    (1, 'topic:machine-learning language:C++ stars:>300'),
+    (1, 'topic:cuda stars:>300'),
+    (1, 'topic:kv-cache stars:>80'),
 ]
 
 
@@ -257,23 +273,17 @@ def domain_fit(desc, topics, lang):
     return max(0.0, min(1.0, fit))
 
 
-AI_WORDS = re.compile(
-    r"\bllms?\b|inference|serving|\bagents?\b|agentic|\bmcp\b|transformer|embedding|\brag\b|vector|\bgpu\b|cuda|"
-    r"tensor|neural|deep.?learning|machine.?learning|\bml\b|\bai\b|language model|diffusion|quantiz|"
-    r"data.?frame|query engine|database|columnar|stream(ing)? processing|\bsql\b|olap|lakehouse|orchestrat", re.I)
+AI_WORDS = re.compile('(?<![a-z0-9])llms?(?![a-z0-9])|inference|serving|(?<![a-z0-9])agents?(?![a-z0-9])|agentic|(?<![a-z0-9])mcp(?![a-z0-9])|(?<![a-z0-9])transformers?(?![a-z0-9])|(?<![a-z0-9])embeddings?(?![a-z0-9])|(?<![a-z0-9])rag(?![a-z0-9])|vector|(?<![a-z0-9])gpu(?![a-z0-9])|(?<![a-z0-9])cuda(?![a-z0-9])|(?<![a-z0-9])tensors?(?![a-z0-9])|neural|deep.?learning|machine.?learning|(?<![a-z0-9])ml(?![a-z0-9])|(?<![a-z0-9])ai(?![a-z0-9])|(?<![a-z0-9])language models?(?![a-z0-9])|diffusion|quantiz|mlops|llmops|(?<![a-z0-9])evals?(?![a-z0-9])|evaluation|benchmark|observability|tracing|(?<![a-z0-9])guardrails?(?![a-z0-9])|(?<![a-z0-9])prompts?(?![a-z0-9])|fine.?tun|(?<![a-z0-9])lora(?![a-z0-9])|(?<![a-z0-9])rlhf(?![a-z0-9])|reinforcement learning|training|pytorch|(?<![a-z0-9])jax(?![a-z0-9])|(?<![a-z0-9])onnx(?![a-z0-9])|kv.?cache|retrieval|knowledge graph|memory|tokeniz|hugging.?face|(?<![a-z0-9])models?(?![a-z0-9])|chatgpt|openai|anthropic|claude|gemini|llama|mistral|(?<![a-z0-9])qwen(?![a-z0-9])|deepseek|whisper|orchestrat|experiment tracking|feature store|multi.?agent|chatbot', re.I)
 LOW_LANGS = {"Rust", "C++", "C", "Zig", "Cuda", "Mojo", "Go"}
 
 
 def resume_fit(full, desc, topics, lang, off_lane):
-    """0..1: how well the repo sits on the AI / agents / serving / data-infra story, not just 'good repo'."""
+    """0..1: is this AI / ML / agents / serving / evals / memory work? Language never matters."""
     if full.lower() in off_lane:
         return 0.25
-    hits = len(set(m.lower() for m in (x if isinstance(x, str) else x[0] for x in AI_WORDS.findall(f"{desc} {' '.join(topics)} {full}"))))
-    if not hits:
-        return 0.3
-    if lang == "Python":
-        return 1.0
-    return 0.85 if lang in LOW_LANGS else 0.7
+    text = desc + ' ' + ' '.join(topics) + ' ' + full.replace('-', ' ').replace('_', ' ')
+    hits = len({m.group(0).lower() for m in AI_WORDS.finditer(text)})
+    return 1.0 if hits >= 2 else 0.8 if hits == 1 else 0.2
 
 
 OUTREACH = re.compile(
@@ -790,9 +800,8 @@ def main():
         fit = domain_fit(r.get("description") or "", [n["topic"]["name"] for n in r["repositoryTopics"]["nodes"]],
                          (r.get("primaryLanguage") or {}).get("name"))
         why_not = repo_verdict(r, seeded)
-        lang = (r or {}).get("primaryLanguage") or {}
-        if not why_not and not args.fixture and lang.get("name") not in STACK_LANGS:
-            why_not = f"{lang.get('name') or 'unknown'} repo, not on the Python/TypeScript AI stack"
+        if not why_not and not args.fixture and rfit < 0.5:  # topic gate, any language
+            why_not = "not AI / ML / agents / serving / evals work"
         if not why_not and not seeded and fit < 0.5:
             why_not = f"end-user app, not infra/systems (fit {fit:.2f})"
         if why_not:
