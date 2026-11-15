@@ -80,7 +80,10 @@ query($owner:String!,$name:String!,$since:DateTime!){
     issues(states:OPEN, first:40, orderBy:{field:CREATED_AT,direction:DESC}, filterBy:{since:$since}){
       nodes{
         number title createdAt updatedAt bodyText body authorAssociation
-        author{__typename}
+        author{__typename login}
+        labeled: timelineItems(itemTypes:[LABELED_EVENT], first:30){
+          nodes{... on LabeledEvent{label{name} actor{__typename login}}}
+        }
         assignees(first:1){totalCount}
         labels(first:10){nodes{name}}
         comments(last:8){totalCount nodes{bodyText authorAssociation}}
@@ -256,8 +259,9 @@ def issue_open_for_grabs(i):
         src = ev.get("source") or ev.get("subject") or {}
         if src.get("__typename") == "PullRequest" and src.get("state") in ("OPEN", "MERGED"):
             return False
-    return not any(CLAIM.search(c["bodyText"] or "") or DONE.search(c["bodyText"] or "")
-                   for c in i["comments"]["nodes"])
+    # anyone in the thread claiming it, offering a PR, or reporting it handled
+    return not any(CLAIM.search(t) or DONE.search(t) or OWNED.search(t)
+                   for t in ((c["bodyText"] or "") for c in i["comments"]["nodes"]))
 
 
 # --------------------------------------------------------------- actionability
@@ -277,7 +281,7 @@ VETTED_LABEL = re.compile(
     r"^p[0-3]$|s-has-(mcve|bisection)|regression", re.I)
 BLOCKED_LABEL = re.compile(
     r"needs?[-: _/]*(triage|info|more|repro|design|investigation|decision|discussion|feedback|clarification|author|sig)|"
-    r"triage[-/: _]*need|untriaged|unconfirmed|awaiting|waiting|wait-|pending|blocked|stale|obsolete|duplicate|"
+    r"triage[-/: _]*need|^triage$|untriaged|unconfirmed|awaiting|waiting|wait-|pending|blocked|stale|obsolete|duplicate|"
     r"invalid|wontfix|won't fix|not planned|in.?progress|\bwip\b|on.?hold|spam|cannot reproduce|not.?reproducible", re.I)
 NOT_TASK_LABEL = re.compile(
     r"^(question|support|discussion|rfc|proposal|tracking|meta|epic|roadmap|announcement|showcase|usage)$|"
@@ -292,7 +296,7 @@ OWNED = re.compile(  # the author says they are doing it themselves
     r"\bwe('ll| will| plan to| are going to| intend to) (submit|open|send|upstream|contribute|work on|implement)|"
     r"(happy|willing|glad|keen|able) to (submit|open|send|contribute|work on|implement|put up|help implement|"
     r"take (this|it)|upstream)|"
-    r"\b(i|we) (have|'ve)( already)? (a |an )?(working |draft |initial |local |rough )?"
+    r"\b(i|we) (have|'ve)( already)? (a |an |the )?(\w+ ){0,2}"
     r"(prototype|implementation|branch|patch|fix|poc|proof of concept|draft)\b|"
     r"(proposed|implemented|opened|submitted|available|addressed) in #\d+|/pull/\d+|"
     r"\b(my|our) (pr|pull request|branch|fork|prototype|patch)\b|pr (is )?(incoming|coming|to follow)|"
@@ -342,6 +346,18 @@ def open_prs_among(full, numbers):
     return is_open
 
 
+def human_labels(i):
+    """Labels applied by a person. The reporter's own labels (issue templates) only count if they are a maintainer."""
+    events = (i.get("labeled") or {}).get("nodes")
+    if events is None:
+        return None  # no label history available: trust the labels as they are
+    reporter = (i.get("author") or {}).get("login")
+    own_ok = i.get("authorAssociation") in MAINT
+    return {e["label"]["name"] for e in events
+            if e and e.get("label") and (e.get("actor") or {}).get("__typename") == "User"
+            and (own_ok or (e.get("actor") or {}).get("login") != reporter)}
+
+
 def actionability(c):
     """(tier, reason): tier 0 ready, 1 vetted, 2 raw; tier None means not pick-up-able."""
     labels, title, body = c["labels"], c["title"], c.get("body_md") or c["body"]
@@ -357,7 +373,11 @@ def actionability(c):
     said = c.get("maint_text") or ""
     if said and MAINT_DECLINE.search(said):
         return None, "maintainer declined or asked for info"
-    ready = next((l for l in labels if READY_LABEL.search(l)), None)
+    # Only labels a person applied count as an endorsement: triage bots stamp
+    # "help wanted" / "community-backlog" / "priority" on everything.
+    trusted = c.get("human_labels")
+    pool = labels if trusted is None else [l for l in labels if l in trusted]
+    ready = next((l for l in pool if READY_LABEL.search(l)), None)
     if ready:
         return 0, ready.lower()
     not_task = next((l for l in labels if NOT_TASK_LABEL.search(l)), None)
@@ -365,7 +385,7 @@ def actionability(c):
         return None, "discussion, not a task"
     if said and MAINT_INVITE.search(said):
         return 0, "maintainer invited a pr"
-    vetted = next((l for l in labels if VETTED_LABEL.search(l)), None)
+    vetted = next((l for l in pool if VETTED_LABEL.search(l)), None)
     if vetted:
         return 1, vetted.lower()
     if c.get("assoc") in MAINT:
@@ -659,6 +679,7 @@ def main():
                     "body_md": i.get("body") or "", "assoc": i.get("authorAssociation"), "cred": cred,
                     "is_bot": (i.get("author") or {}).get("__typename") == "Bot",
                     "maint_replied": any(cm.get("authorAssociation") in MAINT for cm in i["comments"]["nodes"]),
+                    "human_labels": human_labels(i),
                     "maint_text": " ".join((cm.get("bodyText") or "")[:1500] for cm in i["comments"]["nodes"]
                                            if cm.get("authorAssociation") in MAINT),
                     "labels": [l["name"] for l in i["labels"]["nodes"]], "updated": i["updatedAt"],
@@ -681,6 +702,8 @@ def main():
             except Exception as e:
                 log(f"  {full}: reference check failed ({e})")
         cands.extend(mine)
+    if not repos and not args.fixture:
+        sys.exit("no repository could be read; keeping the previously published feed")
     log(f"{len(repos)} repos open to outsiders, {dropped} dropped, {len(cands)} actionable issues")
     log("  not pick-up-able:", ", ".join(f"{k} {v}" for k, v in sorted(rejected.items(), key=lambda kv: -kv[1])) or "none")
     log("  tiers:", ", ".join(f"{TIERS[n]} {sum(c['tier'] == n for c in cands)}" for n in range(3)))
