@@ -25,7 +25,7 @@ NOW = datetime.now(timezone.utc)
 KEEP_DAYS = 4            # nothing older than this survives in feed or cache
 ISSUE_WINDOW_DAYS = 45   # "recent" issues
 MAX_FEED = 200
-MAX_PER_REPO = 5
+MAX_PER_REPO = 4
 MAX_RAW = 40          # unvetted issues are admitted only as a small tail
 TIERS = ["ready", "vetted", "raw"]
 KINDS = ["feature", "perf", "bug", "research", "infra", "refactor", "test", "question", "docs"]
@@ -79,19 +79,19 @@ query($owner:String!,$name:String!,$since:DateTime!,$labels:[String!]){
     }
     issues(states:OPEN, first:40, orderBy:{field:CREATED_AT,direction:DESC}, filterBy:{since:$since}){
       nodes{
-        number title createdAt updatedAt bodyText body authorAssociation
+        number url title createdAt updatedAt bodyText body authorAssociation
         author{__typename login}
         labeled: timelineItems(itemTypes:[LABELED_EVENT], first:30){
           nodes{... on LabeledEvent{label{name} actor{__typename login}}}
         }
         assignees(first:1){totalCount}
         labels(first:10){nodes{name}}
-        comments(last:8){totalCount nodes{bodyText authorAssociation}}
+        comments(last:8){totalCount nodes{bodyText authorAssociation author{login}}}
         reactions{totalCount}
         timelineItems(itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT], first:15){
           nodes{
             __typename
-            ... on CrossReferencedEvent{source{__typename ... on PullRequest{state}}}
+            ... on CrossReferencedEvent{source{__typename ... on PullRequest{state} ... on Issue{url author{login}}}}
             ... on ConnectedEvent{subject{__typename ... on PullRequest{state}}}
           }
         }
@@ -99,19 +99,19 @@ query($owner:String!,$name:String!,$since:DateTime!,$labels:[String!]){
     }
     curated: issues(states:OPEN, first:25, labels:$labels, orderBy:{field:UPDATED_AT,direction:DESC}){
       nodes{
-        number title createdAt updatedAt bodyText body authorAssociation
+        number url title createdAt updatedAt bodyText body authorAssociation
         author{__typename login}
         labeled: timelineItems(itemTypes:[LABELED_EVENT], first:30){
           nodes{... on LabeledEvent{label{name} actor{__typename login}}}
         }
         assignees(first:1){totalCount}
         labels(first:10){nodes{name}}
-        comments(last:8){totalCount nodes{bodyText authorAssociation}}
+        comments(last:8){totalCount nodes{bodyText authorAssociation author{login}}}
         reactions{totalCount}
         timelineItems(itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT], first:15){
           nodes{
             __typename
-            ... on CrossReferencedEvent{source{__typename ... on PullRequest{state}}}
+            ... on CrossReferencedEvent{source{__typename ... on PullRequest{state} ... on Issue{url author{login}}}}
             ... on ConnectedEvent{subject{__typename ... on PullRequest{state}}}
           }
         }
@@ -320,6 +320,14 @@ def issue_open_for_grabs(i):
         src = ev.get("source") or ev.get("subject") or {}
         if src.get("__typename") == "PullRequest" and src.get("state") in ("OPEN", "MERGED"):
             return False
+    me = (i.get("url") or "").split("/issues/")[0]
+    who = {(i.get("author") or {}).get("login")} | {(c.get("author") or {}).get("login") for c in i["comments"]["nodes"]}
+    who.discard(None)
+    for ev in i["timelineItems"]["nodes"]:
+        src = ev.get("source") or {}
+        if (src.get("__typename") == "Issue" and (src.get("author") or {}).get("login") in who
+                and me and not (src.get("url") or "").startswith(me + "/")):
+            return False  # a participant already took it to another project: the cause is not here
     # anyone in the thread claiming it, offering a PR, or reporting it handled
     return not any(CLAIM.search(t) or DONE.search(t) or OWNED.search(t)
                    for t in ((c["bodyText"] or "") for c in i["comments"]["nodes"]))
@@ -332,7 +340,12 @@ def issue_open_for_grabs(i):
 MAINT = {"MEMBER", "OWNER", "COLLABORATOR"}
 DONE = re.compile(r"(fixed|addressed|resolved|implemented|landed) (in|by|on|via) (main|master|#\d+)|"
                   r"already (fixed|implemented|addressed|supported)|duplicate of|dup of #|"
-                  r"working on (this|it) internally|on our (internal )?roadmap|will be (fixed|addressed|included) in", re.I)
+                  r"working on (this|it) internally|on our (internal )?roadmap|will be (fixed|addressed|included) in|"
+                  r"(cannot|can.?t|could not|couldn.?t|unable to|fail(s|ed)? to) repro(duce)?( this| it)?( on| in| with| using| against)? "
+                  r"(the )?(current |latest |recent |newest )?(main|master|head|nightly|latest|trunk)|"
+                  r"no longer (repro|happen|occur|an issue|seeing)|works? (fine |correctly )?(for me )?(on|in|with) "
+                  r"(the )?(current |latest )?(main|master|head)|"
+                  r"(was|has been|is|probably|likely) (already )?fixed (in|by|on|with)", re.I)
 READY_LABEL = re.compile(
     r"help.?wanted|good.?(non.?)?(first|second)|contributions?.?welcome|up.?for.?grabs|prs?.?welcome|"
     r"^e-(easy|medium|help-wanted|mentor)$|community.?backlog|ready.?for.?(implementation|work|dev)|"
@@ -351,6 +364,14 @@ NOT_TASK_TITLE = re.compile(
     r"^\W*(rfc|proposal|discussion|tracking|meta|epic|roadmap|question|announcement|showcase|survey|feedback)\b|"
     r"\[[^\]]*(rfc|benchmark|discussion|question|proposal|tracking|roadmap)[^\]]*\]|"
     r"tracking issue|field report|sharing results|design doc|^how (do|to|can|should)\b|is it possible|any plans?\b", re.I)
+HARDWARE = re.compile(
+    r"\ba[67]\d0\b|\barc\b|jetson|radeon|\brdna|\brocm\b|\bgfx\d{3,4}|blackwell|\bsm_?\d{2,3}\b|\bgb(10|200)\b|dgx|"
+    r"\btpu\b|\bnpu\b|ascend|\bxid\b|\bmps\b|nvfp4|\bdriver \d{3}|apple silicon|\bm[1-4] (pro|max|ultra)\b|"
+    r"\bradv\b|intel gpu|\bxpu\b|\bhpu\b|\bsycl\b|\bmetal\b", re.I)
+NEEDS_HARDWARE = re.compile(
+    r"someone with (a |an |access to )?([\w-]+ ){0,3}(machine|gpu|hardware|card|device|setup)|"
+    r"(need|requires?) (a |an |access to )?([\w-]+ ){0,3}(machine|gpu|hardware|device)|"
+    r"(don.?t|do not) have (a |an |access to )?([\w-]+ ){0,3}(machine|gpu|hardware|device)", re.I)
 OWNED = re.compile(  # the author says they are doing it themselves
     r"\bi('ll| will| plan to| am going to|'m going to| intend to| would like to|'d like to|'d be happy to|'m happy to|"
     r" am happy to| can| could) (submit|open|send|raise|contribute|work on|put up|take (this|it)|tackle|pick (this|it))|"
@@ -448,6 +469,8 @@ def actionability(c):
     said = c.get("maint_text") or ""
     if said and MAINT_DECLINE.search(said):
         return None, "maintainer declined or asked for info"
+    if NEEDS_HARDWARE.search(c.get("thread_text") or said):
+        return None, "needs hardware an outsider will not have"
     # Only labels a person applied count as an endorsement: triage bots stamp
     # "help wanted" / "community-backlog" / "priority" on everything.
     trusted = c.get("human_labels")
@@ -466,6 +489,14 @@ def actionability(c):
     vetted = next((l for l in pool if VETTED_LABEL.search(l)), None)
     if vetted:
         return 1, vetted.lower()
+    if not c.get("maint_replied"):
+        # No endorsement and the thread is someone else's conversation, not an open task
+        if c.get("own_comments", 0) >= 2 and c.get("own_comments", 0) >= c.get("other_comments", 0):
+            return None, "author is working it through themselves"
+        if c.get("assoc") == "CONTRIBUTOR" and c.get("own_comments", 0) >= 1 and not c.get("other_comments", 0):
+            return None, "a contributor's own investigation"
+        if c.get("other_comments", 0) >= 3:
+            return None, "outsiders debating, no maintainer yet"
     # A bare reply proves nothing: in practice it is a question, a decline, or "we are on it".
     return 2, "maintainer replied" if c.get("maint_replied") else "unvetted"
 
@@ -506,7 +537,7 @@ TRIVIAL = ["fix a small typo", "minor wording change", "bump a dependency versio
 
 JUNK = re.compile(r"airdrop|micro-?payments?|boost your|giveaway|backlinks?|\bseo\b|sponsor(ed|ship)|"
                   r"promo(tion| code)|earn (money|crypto|rewards)|listed your (tool|project)", re.I)
-SCORE_V = 5  # bump when scoring rules change so cached verdicts are recomputed
+SCORE_V = 6  # bump when scoring rules change so cached verdicts are recomputed
 
 
 def issue_text(c):
@@ -610,6 +641,8 @@ def priority(c, sc):
         p -= 7          # labelled beginner-sized: a fine start, thin on a resume
     elif re.search(r"non.?first|good.?second|e-medium|intermediate", reason):
         p += 4          # maintainers marked it for someone experienced
+    if c.get("hw"):
+        p -= 10         # needs a specific GPU / driver / board to even reproduce
     p -= (1 - c.get("rfit", 1.0)) * 30  # off the AI / agents / serving / data-infra story
     if c["tier"] == 2:
         p = min(p, 58)  # nobody from the project has looked at it yet
@@ -625,7 +658,7 @@ def rank(cands):
     cands.sort(key=lambda c: (c["sc"]["k"] == "docs", -c["pri"]))
     per_repo, raw, ranked = {}, 0, []
     for c in cands:
-        if per_repo.get(c["repo"], 0) >= MAX_PER_REPO or len(ranked) >= MAX_FEED:
+        if per_repo.get(c["repo"], 0) >= (MAX_PER_REPO if c.get("rfit", 1.0) >= 0.5 else 2) or len(ranked) >= MAX_FEED:
             continue
         if c["tier"] == 2:
             if raw >= MAX_RAW:
@@ -763,6 +796,14 @@ def main():
                     "repo": full, "num": i["number"], "title": i["title"][:140], "body": i["bodyText"] or "",
                     "body_md": i.get("body") or "", "assoc": i.get("authorAssociation"), "cred": cred, "rfit": rfit,
                     "is_bot": (i.get("author") or {}).get("__typename") == "Bot",
+                    "own_comments": sum(1 for cm in i["comments"]["nodes"]
+                                        if (cm.get("author") or {}).get("login") == (i.get("author") or {}).get("login")),
+                    "other_comments": sum(1 for cm in i["comments"]["nodes"]
+                                          if cm.get("authorAssociation") not in MAINT
+                                          and (cm.get("author") or {}).get("login") != (i.get("author") or {}).get("login")
+                                          and (cm.get("author") or {}).get("login", "")[-5:] != "[bot]"),
+                    "thread_text": " ".join((cm.get("bodyText") or "")[:1200] for cm in i["comments"]["nodes"]),
+                    "hw": bool(HARDWARE.search(i["title"] + " " + (i["bodyText"] or "")[:500])),
                     "maint_replied": any(cm.get("authorAssociation") in MAINT for cm in i["comments"]["nodes"]),
                     "human_labels": human_labels(i),
                     "maint_text": " ".join((cm.get("bodyText") or "")[:1500] for cm in i["comments"]["nodes"]
