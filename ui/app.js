@@ -58,6 +58,12 @@ function renderStatus() {
     $(id).className = "btn " + (S.paused ? "go" : "danger");
   }
   $("f-sync").disabled = S.paused;
+  $("f-rescan").disabled = S.paused || S.rescanning;
+  $("f-rescan").textContent = S.rescanning ? "SCANNING..." : "RESCAN";
+  $("cfg-token").placeholder = S.has_token ? "stored // set empty to forget" : "github_pat_...";
+  $("cfg-token-hint").textContent = S.has_token
+    ? "Token is in Windows Credential Manager. RESCAN is armed."
+    : "Needed only for RESCAN. Fine-grained token, this repo only, Actions: read and write.";
   $("m-status").textContent = $("f-status").textContent = S.status || (S.repo ? "STANDING BY" : "SET FEED REPO");
   $("cfg-auto").checked = S.autostart;
   if (document.activeElement !== $("cfg-repo")) $("cfg-repo").value = S.repo;
@@ -334,6 +340,27 @@ async function saveRepo() {
   }
   poll();
 }
+$("f-rescan").onclick = async () => {
+  try {
+    await invoke("rescan");
+  } catch (e) {
+    $("cfg-note").textContent = String(e).toUpperCase();
+    $("cfg-note").scrollIntoView({ block: "nearest" });
+  }
+  poll();
+};
+async function saveToken() {
+  try {
+    await invoke("set_token", { token: $("cfg-token").value });
+    $("cfg-note").textContent = $("cfg-token").value.trim() ? "TOKEN STORED" : "TOKEN FORGOTTEN";
+  } catch (e) {
+    $("cfg-note").textContent = String(e).toUpperCase();
+  }
+  $("cfg-token").value = ""; // never keep it in the page
+  poll();
+}
+$("cfg-token-save").onclick = saveToken;
+$("cfg-token").addEventListener("keydown", (e) => { if (e.key === "Enter") saveToken(); });
 $("cfg-save").onclick = saveRepo;
 $("cfg-repo").addEventListener("keydown", (e) => { if (e.key === "Enter") saveRepo(); });
 $("cfg-auto").onchange = (e) => invoke("set_autostart", { on: e.target.checked }).catch((err) => {
@@ -371,11 +398,14 @@ function mockInvoke() {
     if (cmd === "status") {
       const paused = st.paused_until === -1 || st.paused_until > now();
       return { now: now(), repo: st.repo, paused, paused_until: st.paused_until, next_sync: now() + 11400, last_ok: now() - 2400,
-        status: paused ? "HALTED BY OPERATOR" : "SIGNAL LOCKED", syncing: false, autostart: st.autostart, gen: feed.gen };
+        status: paused ? "HALTED BY OPERATOR" : "SIGNAL LOCKED", syncing: false, autostart: st.autostart, gen: feed.gen,
+        has_token: !!st.token, rescanning: false };
     }
     if (cmd === "get_feed") return feed;
     if (cmd === "halt") st.paused_until = args.minutes <= 0 ? -1 : now() + args.minutes * 60;
     if (cmd === "resume") st.paused_until = 0;
+    if (cmd === "set_token") st.token = args.token.trim();
+    if (cmd === "rescan" && !st.token) throw "no token stored // add one under station";
     return null;
   };
 }

@@ -104,6 +104,7 @@ Within that: repo credibility, then substance, then freshness. Docs are forced t
 | **STORAGE** | one gzipped feed and a small state file; nothing older than four days survives |
 | **FOOTPRINT** | a 4 MB executable, about 30 MB of RAM for the app itself |
 | **STARTUP** | launches with Windows; toggle it under STATION |
+| **RESCAN** | runs the cloud scan on demand and pulls the result; needs a fine-grained GitHub token (this repo only, Actions: read and write), kept in Windows Credential Manager |
 
 ## `>` BRING THE STATION ONLINE
 

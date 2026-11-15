@@ -32,7 +32,8 @@
     <span class="brand" data-tauri-drag-region><i class="lamp"></i>VOTHUB <em>// DEEP REPO LISTENING POST</em></span>
     <span class="state" id="f-state">LISTENING</span>
     <span class="grow" data-tauri-drag-region></span>
-    <button class="btn" id="f-sync">SYNC NOW</button>
+    <button class="btn go" id="f-rescan" title="Run the cloud scan now, then pull the result">RESCAN</button>
+    <button class="btn" id="f-sync" title="Pull the latest published feed">SYNC NOW</button>
     <button class="btn danger" id="f-halt">HALT</button>
     <button class="btn" id="f-collapse" title="Back to the mini tab">COLLAPSE</button>
   </header>
@@ -74,6 +75,10 @@
       <label class="field">FEED REPO
         <span class="row"><input id="cfg-repo" placeholder="owner/name" spellcheck="false" autocomplete="off"><button class="btn" id="cfg-save">SET</button></span>
       </label>
+      <label class="field">RESCAN TOKEN
+        <span class="row"><input id="cfg-token" type="password" placeholder="github_pat_..." spellcheck="false" autocomplete="off"><button class="btn" id="cfg-token-save">SET</button></span>
+      </label>
+      <div class="hint" id="cfg-token-hint"></div>
       <div class="note" id="cfg-note"></div>
       <label class="check"><input type="checkbox" id="cfg-auto"> START WITH WINDOWS</label>
       <button class="btn danger wide" id="cfg-quit">SHUT DOWN STATION</button>

@@ -114,11 +114,14 @@ dd { text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: 
 
 .field { display: block; font-size: .78em; color: var(--dim); letter-spacing: .12em; }
 .field .row { margin-top: .3em; }
-input:not([type]) {
+input:not([type=checkbox]) {
   flex: 1; min-width: 0; font: inherit; font-size: 1.15em; color: var(--hot); background: #020503;
   border: 1px solid var(--line); padding: .25em .5em; outline: none; user-select: text; letter-spacing: 0;
 }
-input:not([type]):focus { border-color: var(--fg); }
+input:not([type=checkbox]):focus { border-color: var(--fg); }
+.hint { font-size: .72em; color: var(--dim); margin: .3em 0 .6em; line-height: 1.4; }
+.hint + .field { margin-top: .6em; }
+.btn:disabled { opacity: .35; pointer-events: none; }
 .note { font-size: .78em; color: var(--amber); min-height: 1.3em; margin: .3em 0; }
 .check { display: flex; align-items: center; gap: .5em; font-size: .82em; cursor: pointer; }
 .check input { accent-color: #72f5a2; }

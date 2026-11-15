@@ -21,6 +21,7 @@ const KEEP_SECS: i64 = 4 * 86_400; // local storage never holds anything older
 const DEFER_SECS: i64 = 3_600; // busy machine -> try again in an hour
 const CLOUD_LAG_RETRY: i64 = 600; // cloud scan not published yet -> look again in 10 min
 const ERROR_RETRY: i64 = 900;
+const RESCAN_TIMEOUT: i64 = 25 * 60; // matches the workflow's own time limit
 const CPU_BUSY_PCT: f32 = 60.0;
 const MEM_BUSY_FRAC: f64 = 0.90;
 const MAX_FEED_BYTES: u64 = 4 * 1024 * 1024;
@@ -46,6 +47,9 @@ struct Shared {
     dir: PathBuf,
     syncing: bool,
     force: bool,
+    has_token: bool,
+    rescan_since: i64, // >0 while a cloud scan we started is still running
+    rescan_poll: i64,
 }
 
 type St = Arc<Mutex<Shared>>;
@@ -195,6 +199,16 @@ fn scheduler(st: St) {
                 // first run, or woke up after missing a slot
                 sh.cfg.next_sync = if sh.cfg.last_ok < prev_slot(t) { t } else { next_slot(t) };
             }
+            if sh.rescan_since > 0 && t >= sh.rescan_poll {
+                if t - sh.rescan_since > RESCAN_TIMEOUT {
+                    sh.rescan_since = 0;
+                    sh.cfg.status = "RESCAN TIMED OUT // CHECK THE ACTIONS TAB".into();
+                    save(&sh);
+                } else {
+                    sh.force = true; // look for the fresh feed
+                    sh.rescan_poll = t + 30;
+                }
+            }
             if !sh.force && t < sh.cfg.next_sync {
                 continue;
             }
@@ -242,8 +256,23 @@ fn scheduler(st: St) {
                 }
             }
         }
+        if sh.rescan_since > 0 {
+            let gen = sh.feed.as_ref().and_then(|f| f["gen"].as_i64()).unwrap_or(0);
+            if gen >= sh.rescan_since - 120 {
+                sh.rescan_since = 0;
+                sh.cfg.status = "SIGNAL LOCKED // FRESH SCAN".into();
+                sh.cfg.next_sync = next_slot(t);
+            } else {
+                sh.cfg.status = format!("CLOUD SCAN RUNNING // {} MIN", (t - sh.rescan_since) / 60);
+            }
+        }
         save(&sh);
     }
+}
+
+fn token_entry() -> Result<keyring::Entry, String> {
+    // Windows Credential Manager: the token never touches the repo or a plain file.
+    keyring::Entry::new("vothub", "github-token").map_err(|e| e.to_string())
 }
 
 fn place(win: &WebviewWindow, expanded: bool) {
@@ -302,6 +331,8 @@ fn status(st: State<St>) -> Value {
         "status": sh.cfg.status,
         "syncing": sh.syncing,
         "autostart": sh.cfg.autostart,
+        "has_token": sh.has_token,
+        "rescanning": sh.rescan_since > 0,
         "gen": sh.feed.as_ref().and_then(|f| f["gen"].as_i64()).unwrap_or(0),
     })
 }
@@ -342,6 +373,69 @@ fn sync_now(st: State<St>) -> Result<(), String> {
         return Err("halted".into());
     }
     sh.force = true;
+    Ok(())
+}
+
+/// Stores (or, when empty, forgets) the GitHub token RESCAN uses to start the workflow.
+#[tauri::command]
+fn set_token(st: State<St>, token: String) -> Result<(), String> {
+    let token = token.trim();
+    let entry = token_entry()?;
+    if token.is_empty() {
+        let _ = entry.delete_credential();
+        st.lock().unwrap().has_token = false;
+        return Ok(());
+    }
+    let shaped = token.starts_with("github_pat_") || token.starts_with("ghp_");
+    if !shaped || token.len() > 400 || !token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err("that does not look like a github token".into());
+    }
+    entry.set_password(token).map_err(|e| e.to_string())?;
+    st.lock().unwrap().has_token = true;
+    Ok(())
+}
+
+/// Starts the cloud scan now; the scheduler then polls until the fresh feed lands.
+#[tauri::command(async)]
+fn rescan(st: State<St>) -> Result<(), String> {
+    let repo = {
+        let sh = st.lock().unwrap();
+        if is_paused(&sh.cfg, now()) {
+            return Err("halted".into());
+        }
+        if sh.rescan_since > 0 {
+            return Err("a rescan is already running".into());
+        }
+        sh.cfg.repo.clone()
+    };
+    if !valid_repo(&repo) {
+        return Err("no feed repo set".into());
+    }
+    let token = token_entry()?
+        .get_password()
+        .map_err(|_| "no token stored // add one under station".to_string())?;
+    let url = format!("https://api.github.com/repos/{repo}/actions/workflows/scan.yml/dispatches");
+    let sent = ureq::post(&url)
+        .timeout(Duration::from_secs(30))
+        .set("Authorization", &format!("Bearer {token}"))
+        .set("Accept", "application/vnd.github+json")
+        .set("X-GitHub-Api-Version", "2022-11-28")
+        .set("User-Agent", "vothub-tab")
+        .send_string(r#"{"ref":"main"}"#);
+    match sent {
+        Ok(_) => {}
+        Err(ureq::Error::Status(401, _)) => return Err("github rejected the token".into()),
+        Err(ureq::Error::Status(403 | 404, _)) => {
+            return Err("token cannot run workflows on this repo".into())
+        }
+        Err(ureq::Error::Status(code, _)) => return Err(format!("github said {code}")),
+        Err(other) => return Err(other.to_string()),
+    }
+    let mut sh = st.lock().unwrap();
+    let t = now();
+    sh.rescan_since = t;
+    sh.rescan_poll = t + 90; // a scan takes minutes; no point looking sooner
+    sh.cfg.status = "CLOUD SCAN STARTED".into();
     Ok(())
 }
 
@@ -435,7 +529,8 @@ fn main() {
                 cfg.autostart_decided = true;
             }
 
-            let shared = Shared { cfg, feed, dir, syncing: false, force: false };
+            let has_token = token_entry().and_then(|e| e.get_password().map_err(|e| e.to_string())).is_ok();
+            let shared = Shared { cfg, feed, dir, syncing: false, force: false, has_token, rescan_since: 0, rescan_poll: 0 };
             save(&shared);
             let st: St = Arc::new(Mutex::new(shared));
             app.manage(st.clone());
@@ -448,7 +543,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            status, get_feed, set_mode, halt, resume, sync_now, set_repo, set_autostart, open_issue, quit
+            status, get_feed, set_mode, halt, resume, sync_now, rescan, set_token, set_repo, set_autostart, open_issue, quit
         ])
         .run(tauri::generate_context!())
         .expect("vothub failed to start");
