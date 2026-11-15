@@ -174,7 +174,8 @@ CLAIM = re.compile(
     r"\b(i('| a)?m (already |currently )?working on|"
     r"i('ll| will| can| would like to|'d like to| want to|'d love to) "
     r"(take|work on|pick|tackle|fix|implement|give (this|it) a|submit|open|send)|"
-    r"working on (this|it|a fix|a pr|a patch)|assign (this |it )?to me|"
+    r"working on (this|it|a fix|a pr|a patch)|assign (this |it )?to me|assign me|"
+    r"(can|could|may|would you) (this|it|the issue) (please )?be assigned( to me)?|be assigned to me|"
     r"(can|may|could) i (take|work on|pick|tackle|be assigned)|"
     r"i (have|opened|submitted|created|pushed) (a |an )?(pr|pull request|fix|patch|draft))\b|/assign", re.I)
 SKIP_LABELS = re.compile(r"wontfix|won't fix|invalid|duplicate|stale|blocked|needs.?repro|"
@@ -273,7 +274,7 @@ DONE = re.compile(r"(fixed|addressed|resolved|implemented|landed) (in|by|on|via)
                   r"already (fixed|implemented|addressed|supported)|duplicate of|dup of #|"
                   r"working on (this|it) internally|on our (internal )?roadmap|will be (fixed|addressed|included) in", re.I)
 READY_LABEL = re.compile(
-    r"help.?wanted|good.?(first|second)|contributions?.?welcome|up.?for.?grabs|prs?.?welcome|"
+    r"help.?wanted|good.?(non.?)?(first|second)|contributions?.?welcome|up.?for.?grabs|prs?.?welcome|"
     r"^e-(easy|medium|help-wanted|mentor)$|community.?backlog|ready.?for.?(implementation|work|dev)|"
     r"triage/ready|^ready$|hacktoberfest|bounty", re.I)
 VETTED_LABEL = re.compile(
@@ -308,15 +309,26 @@ MAINT_INVITE = re.compile(
     r"feel free to (open|submit|send|work on|take|pick|contribute|put up|give it)|"
     r"would (accept|welcome|merge|review|take) (a |the |any )?(pr|pull request|patch|contribution)|"
     r"(want|like|care|interested) to (open|submit|send|contribute|put up) (a |the )?(pr|pull request|patch)|"
-    r"help (is |would be )?(wanted|welcome|appreciated)|open to (a |the )?(pr|pull request|contribution)", re.I)
+    r"help (is |would be )?(wanted|welcome|appreciated)|open to (a |the )?(pr|pull request|contribution)|"
+    r"(would|'d) (love|like|welcome|appreciate) (a |an |the |to see )?(pr|pull request|patch|contribution|fix)", re.I)
 MAINT_DECLINE = re.compile(
     r"no plans?\b|not planned|won'?t (fix|implement|support|be |add)|out of scope|not a priority|not something we|"
     r"can(no|')t reproduce|unable to reproduce|could ?n[o']t reproduce|need more (info|information|details)|"
     r"please (provide|share|attach|post)|(can|could) you (share|provide|post|attach|try)|closing (this|as)|"
-    r"works as (intended|designed|expected)|by design|not a bug|expected behaviou?r|already (tracked|covered) in", re.I)
+    r"works as (intended|designed|expected)|by design|not a bug|expected behaviou?r|already (tracked|covered) in|"
+    # the team has it
+    r"we('re| are| were) (currently |already |now |actively )?(working on|looking into|fixing|implementing|building|adding)|"
+    r"(should|will) be (ready|available|fixed|released|out) (soon|shortly|in)|coming soon|in the works|"
+    r"on (our|the) (roadmap|todo|to-do|backlog)|we('ll| will) (get to|look at|fix|add|handle|ship|take care)|"
+    # not this project's job, or a settled no
+    r"sounds like an? [\w ]{0,25}bug|(file|open|report) (a |an )?(bug|issue|report)? ?(with|upstream|against|to) |"
+    r"report(ed)? (this |it )?(upstream|to the)|(not|isn't|is not) (possible|something we)|"
+    r"(is|are) (intentional|expected)|nothing (we|the app) can|can ?not support|can't support|"
+    r"we (will|do|are|would) not\b|we (won't|wouldn't|don't plan|do not plan)|not going to (fix|add|support|implement|do)|"
+    r"don'?t want to (support|add|do|implement|take)|not a good (fit|idea|choice)|"
+    r"does not make .{0,40} a good", re.I)
 REPORT_TITLE = re.compile(r"performance report|\bvs\.? .*comparison|comparison$|^call for\b|meet-?up|"
                           r"\bsurvey\b|release notes|changelog|\bamas?\b", re.I)
-COMMIT_STYLE = re.compile(r"^(fix|feat|chore|ci|refactor|perf|test|build|docs|style)(\([^)]*\))?!?:", re.I)
 WILLING_BOX = re.compile(
     r"\[x\][^\n]{0,90}(willing|submit a (pr|pull request)|i can (help|contribute)|i would like to work|i'd like to work)", re.I)
 
@@ -385,17 +397,14 @@ def actionability(c):
         return None, "discussion, not a task"
     if said and MAINT_INVITE.search(said):
         return 0, "maintainer invited a pr"
+    if c.get("assoc") in MAINT:
+        # Core authors close their own issues: without an invitation this is their to-do list.
+        return None, "maintainer's own to-do"
     vetted = next((l for l in pool if VETTED_LABEL.search(l)), None)
     if vetted:
         return 1, vetted.lower()
-    if c.get("assoc") in MAINT:
-        # Core authors mostly close their own issues: without an invitation label this is their to-do list.
-        if COMMIT_STYLE.search(title):
-            return None, "author is doing it"
-        return 2, "maintainer's own item"
-    if c.get("maint_replied"):
-        return 1, "maintainer replied"
-    return 2, "unvetted"
+    # A bare reply proves nothing: in practice it is a question, a decline, or "we are on it".
+    return 2, "maintainer replied" if c.get("maint_replied") else "unvetted"
 
 
 # -------------------------------------------------------------------- scoring
@@ -533,6 +542,11 @@ def priority(c, sc):
     p = 0.42 * sc["s"] + 26 * c["cred"] + 8 * fresh + (24, 12, -10)[c["tier"]]
     if sc["s"] < 45:
         p -= 8          # ready but tiny: fine to do, not much to show for it
+    reason = c.get("reason", "")
+    if re.search(r"good.?first", reason) and not re.search(r"non.?first|second", reason):
+        p -= 7          # labelled beginner-sized: a fine start, thin on a resume
+    elif re.search(r"non.?first|good.?second|e-medium|intermediate", reason):
+        p += 4          # maintainers marked it for someone experienced
     if c["tier"] == 2:
         p = min(p, 58)  # nobody from the project has looked at it yet
     if sc["k"] == "docs":
