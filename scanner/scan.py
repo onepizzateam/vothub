@@ -317,6 +317,31 @@ WILLING_BOX = re.compile(
     r"\[x\][^\n]{0,90}(willing|submit a (pr|pull request)|i can (help|contribute)|i would like to work|i'd like to work)", re.I)
 
 
+def issue_refs(full, number, body):
+    """Issue/PR numbers of this repo that the issue text mentions (GitHub only links PR -> issue, not this way)."""
+    found = re.findall(r"(?<![\w/])#(\d{2,7})\b", body)
+    found += re.findall(r"github\.com/" + re.escape(full) + r"/(?:pull|issues)/(\d{2,7})", body, re.I)
+    return [n for n in dict.fromkeys(int(x) for x in found) if n != number][:6]
+
+
+def open_prs_among(full, numbers):
+    """Which of these numbers are open pull requests: one batched GraphQL query per 40."""
+    owner, name = full.split("/", 1)
+    numbers, is_open = sorted(set(numbers)), set()
+    for k in range(0, len(numbers), 40):
+        chunk = numbers[k:k + 40]
+        fields = " ".join(f"n{n}: issueOrPullRequest(number:{n}){{__typename ... on PullRequest{{state}}}}" for n in chunk)
+        out = gh("https://api.github.com/graphql",
+                 {"query": f"query($owner:String!,$name:String!){{repository(owner:$owner,name:$name){{{fields}}}}}",
+                  "variables": {"owner": owner, "name": name}})
+        repo = (out.get("data") or {}).get("repository") or {}
+        for n in chunk:
+            node = repo.get(f"n{n}") or {}
+            if node.get("__typename") == "PullRequest" and node.get("state") == "OPEN":
+                is_open.add(n)
+    return is_open
+
+
 def actionability(c):
     """(tier, reason): tier 0 ready, 1 vetted, 2 raw; tier None means not pick-up-able."""
     labels, title, body = c["labels"], c["title"], c.get("body_md") or c["body"]
@@ -626,6 +651,7 @@ def main():
         repos[full] = {"stars": r["stargazerCount"], "vel": vel, "lane": t["lane"], "cred": cred,
                        "lang": (r.get("primaryLanguage") or {}).get("name") or "?",
                        "desc": (r.get("description") or "")[:110]}
+        mine = []
         for i in r["issues"]["nodes"]:
             if issue_open_for_grabs(i):
                 c = {
@@ -644,7 +670,17 @@ def main():
                 if c["tier"] is None:
                     rejected[c["reason"].split(":")[0]] = rejected.get(c["reason"].split(":")[0], 0) + 1
                 else:
-                    cands.append(c)
+                    c["refs"] = issue_refs(full, c["num"], c["body_md"])
+                    mine.append(c)
+        if not args.fixture and any(c["refs"] for c in mine):
+            try:  # someone already has a PR open for it, even though GitHub shows no link on the issue
+                taken = open_prs_among(full, [n for c in mine for n in c["refs"]])
+                for c in [c for c in mine if taken.intersection(c["refs"])]:
+                    mine.remove(c)
+                    rejected["open pr referenced"] = rejected.get("open pr referenced", 0) + 1
+            except Exception as e:
+                log(f"  {full}: reference check failed ({e})")
+        cands.extend(mine)
     log(f"{len(repos)} repos open to outsiders, {dropped} dropped, {len(cands)} actionable issues")
     log("  not pick-up-able:", ", ".join(f"{k} {v}" for k, v in sorted(rejected.items(), key=lambda kv: -kv[1])) or "none")
     log("  tiers:", ", ".join(f"{TIERS[n]} {sum(c['tier'] == n for c in cands)}" for n in range(3)))
