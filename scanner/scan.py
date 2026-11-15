@@ -194,7 +194,7 @@ INFRA_WORDS = re.compile(
 APP_WORDS = re.compile(
     r"\bapps?\b|tracker|dashboard|video editor|photo editor|word processor|marketing|\bskills?\b|"
     r"account (manager|switch)|switcher|one-click|tutor|viral|menu bar|diagram|design vocabulary|alternative to|"
-    r"(for|control|manage) (claude code|codex|cursor)|coding agents? (with|from)|\bnews\b|\bgym\b|at work|"
+    r"(for|control|manage) (\w+ code|codex|cursor)\b|coding agents? (with|from)|\bnews\b|\bgym\b|at work|"
     r"wallpaper|template|boilerplate|awesome|prompts?\b|personal assistant|browser extension|\bui kit\b|"
     r"api key|free model|subscription|launcher|\bclient\b|chatbot|companion|plugin for", re.I)
 CORE_LANGS = {"Rust", "C++", "C", "Zig", "Go", "Python", "Cuda", "Assembly", "Mojo"}
