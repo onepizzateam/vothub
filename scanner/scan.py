@@ -67,7 +67,7 @@ def gh(url, payload=None):
 
 
 REPO_QUERY = """
-query($owner:String!,$name:String!,$since:DateTime!){
+query($owner:String!,$name:String!,$since:DateTime!,$labels:[String!]){
   repository(owner:$owner,name:$name){
     nameWithOwner description isArchived isFork isDisabled hasIssuesEnabled
     stargazerCount createdAt pushedAt
@@ -97,18 +97,48 @@ query($owner:String!,$name:String!,$since:DateTime!){
         }
       }
     }
+    curated: issues(states:OPEN, first:25, labels:$labels, orderBy:{field:UPDATED_AT,direction:DESC}){
+      nodes{
+        number title createdAt updatedAt bodyText body authorAssociation
+        author{__typename login}
+        labeled: timelineItems(itemTypes:[LABELED_EVENT], first:30){
+          nodes{... on LabeledEvent{label{name} actor{__typename login}}}
+        }
+        assignees(first:1){totalCount}
+        labels(first:10){nodes{name}}
+        comments(last:8){totalCount nodes{bodyText authorAssociation}}
+        reactions{totalCount}
+        timelineItems(itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT], first:15){
+          nodes{
+            __typename
+            ... on CrossReferencedEvent{source{__typename ... on PullRequest{state}}}
+            ... on ConnectedEvent{subject{__typename ... on PullRequest{state}}}
+          }
+        }
+      }
+    }
   }
 }"""
+
+
+CURATED_LABELS = ["good first issue", "help wanted", "good non-first issue", ".contrib/good non-first issue",
+                  "good second issue", "ready for implementation", "S-Ready-For-Implementation", "triage/ready",
+                  "contributions welcome", "PRs welcome"]
+CURATED_DAYS = 180   # maintainer-labelled issues stay interesting much longer than unvetted ones
 
 
 def fetch_repo(full_name):
     owner, name = full_name.split("/", 1)
     since = (NOW - timedelta(days=ISSUE_WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
     out = gh("https://api.github.com/graphql",
-             {"query": REPO_QUERY, "variables": {"owner": owner, "name": name, "since": since}})
+             {"query": REPO_QUERY, "variables": {"owner": owner, "name": name, "since": since, "labels": CURATED_LABELS}})
     if out.get("errors") and not (out.get("data") or {}).get("repository"):
         raise RuntimeError(out["errors"][0].get("message", "graphql error"))
-    return (out.get("data") or {}).get("repository")
+    repo = (out.get("data") or {}).get("repository")
+    if repo:  # merge the label-driven list into the recent one, once per issue
+        seen = {i["number"] for i in repo["issues"]["nodes"]}
+        repo["issues"]["nodes"] += [i for i in (repo.pop("curated") or {}).get("nodes", []) if i["number"] not in seen]
+    return repo
 
 
 # ------------------------------------------------------------------ discovery
@@ -176,7 +206,8 @@ CLAIM = re.compile(
     r"(take|work on|pick|tackle|fix|implement|give (this|it) a|submit|open|send)|"
     r"working on (this|it|a fix|a pr|a patch)|assign (this |it )?to me|assign me|"
     r"(can|could|may|would you) (this|it|the issue) (please )?be assigned( to me)?|be assigned to me|"
-    r"(can|may|could) i (take|work on|pick|tackle|be assigned)|"
+    r"(can|may|could) i (take|work on|pick|tackle|be assigned|investigate|look into|try|help (with|fix))|"
+    r"i('ll| will) (look into|investigate|try|see what)|let me (take|try|look into|investigate|work on)|"
     r"i (have|opened|submitted|created|pushed) (a |an )?(pr|pull request|fix|patch|draft))\b|/assign", re.I)
 SKIP_LABELS = re.compile(r"wontfix|won't fix|invalid|duplicate|stale|blocked|needs.?repro|"
                          r"waiting|on.?hold|spam|not planned", re.I)
@@ -278,7 +309,11 @@ def issue_open_for_grabs(i):
     if i["assignees"]["totalCount"]:
         return False
     if (NOW - _dt(i["createdAt"])).days > ISSUE_WINDOW_DAYS:
-        return False
+        # old issues only when a person at the project marked them for outsiders and the thread is still alive
+        if not (any(READY_LABEL.search(l) for l in human_labels(i))
+                and (NOW - _dt(i["createdAt"])).days <= CURATED_DAYS
+                and (NOW - _dt(i["updatedAt"])).days <= 90):
+            return False
     if any(SKIP_LABELS.search(l["name"]) for l in i["labels"]["nodes"]):
         return False
     for ev in i["timelineItems"]["nodes"]:
@@ -326,7 +361,8 @@ OWNED = re.compile(  # the author says they are doing it themselves
     r"(prototype|implementation|branch|patch|fix|poc|proof of concept|draft)\b|"
     r"(proposed|implemented|opened|submitted|available|addressed) in #\d+|/pull/\d+|"
     r"\b(my|our) (pr|pull request|branch|fork|prototype|patch)\b|pr (is )?(incoming|coming|to follow)|"
-    r"will follow up with (a )?(pr|patch)", re.I)
+    r"will follow up with (a )?(pr|patch)|"
+    r"\b(a/b|benchmark|measured|timings?) (results?|numbers) (for|of|with) (the |my |our )?(prototype|patch|fix|change)", re.I)
 MAINT_INVITE = re.compile(
     r"prs? (are |is |would be |very |more than )*(welcome|appreciated)|"
     r"happy to (review|accept|merge|take|look at) (a |the |any )?(pr|pull request|patch|contribution)|"
