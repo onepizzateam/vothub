@@ -30,5 +30,17 @@
     "zed-industries/zed",
     "ziglang/zig",
     "duckdb/duckdb"
+  ],
+  "block": [
+    "NVIDIA/TensorRT",
+    "Niko1221/Strata",
+    "DeusData/codebase-memory-mcp"
+  ],
+  "off_lane": [
+    "zed-industries/zed",
+    "bevyengine/bevy",
+    "heygen-com/hyperframes",
+    "ziglang/zig",
+    "MemPalace/mempalace"
   ]
 }

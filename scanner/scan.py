@@ -215,6 +215,31 @@ def domain_fit(desc, topics, lang):
     return max(0.0, min(1.0, fit))
 
 
+AI_WORDS = re.compile(
+    r"\bllms?\b|inference|serving|\bagents?\b|agentic|\bmcp\b|transformer|embedding|\brag\b|vector|\bgpu\b|cuda|"
+    r"tensor|neural|deep.?learning|machine.?learning|\bml\b|\bai\b|language model|diffusion|quantiz|"
+    r"data.?frame|query engine|database|columnar|stream(ing)? processing|\bsql\b|olap|lakehouse|orchestrat", re.I)
+LOW_LANGS = {"Rust", "C++", "C", "Zig", "Cuda", "Mojo", "Go"}
+
+
+def resume_fit(full, desc, topics, lang, off_lane):
+    """0..1: how well the repo sits on the AI / agents / serving / data-infra story, not just 'good repo'."""
+    if full.lower() in off_lane:
+        return 0.25
+    hits = len(set(m.lower() for m in (x if isinstance(x, str) else x[0] for x in AI_WORDS.findall(f"{desc} {' '.join(topics)} {full}"))))
+    if not hits:
+        return 0.3
+    if lang == "Python":
+        return 1.0
+    return 0.85 if lang in LOW_LANGS else 0.7
+
+
+OUTREACH = re.compile(
+    r"genuinely impressed|following your work|we.?re (currently )?(developing|building)|at \w+, we|"
+    r"(would|love to) (love to )?(connect|chat|collaborate|partner)|partnership|our (startup|platform|product|company)|"
+    r"book a (call|demo)|sponsor", re.I)
+
+
 def repo_credibility(stars, age_days, vel, outside, seeded, fit=1.0):
     """0..1: is an outsider's merged PR here both likely and worth putting on a resume?
 
@@ -375,6 +400,8 @@ def actionability(c):
     labels, title, body = c["labels"], c["title"], c.get("body_md") or c["body"]
     if c.get("is_bot"):
         return None, "filed by a bot"
+    if OUTREACH.search(title + " " + (c["body"] or "")[:1500]) and c.get("assoc") not in MAINT:
+        return None, "outreach or promotion, not a task"
     blocked = next((l for l in labels if BLOCKED_LABEL.search(l)), None)
     if blocked:
         return None, "blocked label: " + blocked.lower()
@@ -443,7 +470,7 @@ TRIVIAL = ["fix a small typo", "minor wording change", "bump a dependency versio
 
 JUNK = re.compile(r"airdrop|micro-?payments?|boost your|giveaway|backlinks?|\bseo\b|sponsor(ed|ship)|"
                   r"promo(tion| code)|earn (money|crypto|rewards)|listed your (tool|project)", re.I)
-SCORE_V = 4  # bump when scoring rules change so cached verdicts are recomputed
+SCORE_V = 5  # bump when scoring rules change so cached verdicts are recomputed
 
 
 def issue_text(c):
@@ -547,6 +574,7 @@ def priority(c, sc):
         p -= 7          # labelled beginner-sized: a fine start, thin on a resume
     elif re.search(r"non.?first|good.?second|e-medium|intermediate", reason):
         p += 4          # maintainers marked it for someone experienced
+    p -= (1 - c.get("rfit", 1.0)) * 30  # off the AI / agents / serving / data-infra story
     if c["tier"] == 2:
         p = min(p, 58)  # nobody from the project has looked at it yet
     if sc["k"] == "docs":
@@ -646,7 +674,10 @@ def main():
         targets = {n: {"lane": 1 if "oxidb" in n else 0, "vel": r["stargazerCount"] / 120} for n, r in fake.items()}
     else:
         seeds = json.loads((HERE / "seeds.json").read_text())
+        block = {n.lower() for n in seeds.pop("block", [])}
+        off_lane = {n.lower() for n in seeds.pop("off_lane", [])}
         targets = discover(args.per_lane, args.max_queries)
+        targets = {n: t for n, t in targets.items() if n.lower() not in block}
         log(f"discovered {len(targets)} trending repos")
         if args.discover_only:
             for n, t in sorted(targets.items(), key=lambda kv: -kv[1]["vel"]):
@@ -654,7 +685,8 @@ def main():
             return
         for lane_name, names in seeds.items():
             for n in names:
-                targets.setdefault(n, {"lane": LANES.index(lane_name), "vel": None})
+                if n.lower() not in block:
+                    targets.setdefault(n, {"lane": LANES.index(lane_name), "vel": None})
 
     # 2. repo gate + issue gate
     repos, cands, dropped, rejected = {}, [], 0, {}
@@ -669,6 +701,9 @@ def main():
             log(f"  {full}: fetch failed ({e})")
             continue
         seeded = t["vel"] is None
+        topics = [n["topic"]["name"] for n in r["repositoryTopics"]["nodes"]]
+        rfit = resume_fit(full, r.get("description") or "", topics, (r.get("primaryLanguage") or {}).get("name"),
+                          off_lane if not args.fixture else set())
         fit = domain_fit(r.get("description") or "", [n["topic"]["name"] for n in r["repositoryTopics"]["nodes"]],
                          (r.get("primaryLanguage") or {}).get("name"))
         why_not = repo_verdict(r, seeded)
@@ -682,7 +717,7 @@ def main():
         age = max(14, (NOW - _dt(r["createdAt"])).days)
         vel = r["stargazerCount"] / age if seeded else t["vel"]
         cred = repo_credibility(r["stargazerCount"], age, vel, outside_merges(r), seeded, fit)
-        repos[full] = {"stars": r["stargazerCount"], "vel": vel, "lane": t["lane"], "cred": cred,
+        repos[full] = {"stars": r["stargazerCount"], "vel": vel, "lane": t["lane"], "cred": cred, "rfit": rfit,
                        "lang": (r.get("primaryLanguage") or {}).get("name") or "?",
                        "desc": (r.get("description") or "")[:110]}
         mine = []
@@ -690,7 +725,7 @@ def main():
             if issue_open_for_grabs(i):
                 c = {
                     "repo": full, "num": i["number"], "title": i["title"][:140], "body": i["bodyText"] or "",
-                    "body_md": i.get("body") or "", "assoc": i.get("authorAssociation"), "cred": cred,
+                    "body_md": i.get("body") or "", "assoc": i.get("authorAssociation"), "cred": cred, "rfit": rfit,
                     "is_bot": (i.get("author") or {}).get("__typename") == "Bot",
                     "maint_replied": any(cm.get("authorAssociation") in MAINT for cm in i["comments"]["nodes"]),
                     "human_labels": human_labels(i),
