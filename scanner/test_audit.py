@@ -24,6 +24,7 @@ def cand(i):
     me = i["author"]["login"]
     c = {"labels": [l["name"] for l in i["labels"]["nodes"]], "title": i["title"], "body": i["bodyText"], "body_md": i["body"],
          "assoc": i["authorAssociation"], "human_labels": scan.human_labels(i),
+         "self_labelled": False,
          "maint_replied": any(n["authorAssociation"] in scan.MAINT for n in nodes),
          "maint_text": " ".join(n["bodyText"] for n in nodes if n["authorAssociation"] in scan.MAINT),
          "thread_text": " ".join(n["bodyText"] for n in nodes),
@@ -54,9 +55,14 @@ CASES = [  # name, issue, expected
     ("maintainer: file it upstream", issue([("m", "MEMBER", "It sounds like an OpenBSD bug, please file a bug with OpenBSD")]), "dropped:maintainer declined or asked for info"),
     ("risingwave: interested in working on Phase 1", issue([("d", "NONE", "Hi, I'd be interested in working on the Phase 1 scope of this issue. My plan would be to reproduce first.")], labels=["good first issue"]), "dropped:claim/fixed/upstream"),
     ("risingwave: interested in exploring", issue([("x", "CONTRIBUTOR", "Hi, I am interested in exploring this. I traced the current implementation")], labels=["good first issue"]), "dropped:claim/fixed/upstream"),
-    ("polars: hype title", issue(title="An enhanecment that boosts Polars's performance by 15-30%!!"), "dropped:outreach or promotion, not a task"),
+    ("polars: hype title", issue(title="An enhanecment that boosts Polars's performance by 15-30%!!"), "dropped:discussion, not a task"),
     ("autogen: promo title", issue(title="Open-source MCP runtime behavior security tools - RFC 9334 aligned"), "dropped:outreach or promotion, not a task"),
     ("plain thanks comment is not a claim", issue([("o", "NONE", "Thanks for the report, I can reproduce this on 0.2.")]), "raw"),
+    ("openhands: bot-labelled AI-written feedback", issue(title="Feedback: a zero-cost local-AI supply built with OpenHands", body="This feedback was written by an AI agent (OpenHands) on behalf of the user.", labels=["ready-for-dev"]), "dropped:written by an AI agent"),
+    ("markitdown: joke title", issue(title="Autonomous Agents, Unite!", labels=["good first issue"]), "dropped:discussion, not a task"),
+    ("agno: vendor cookbook", issue(title="[Feature Request] Add a Datacircle hosted MCP cookbook (no key)", labels=["ready"]), "dropped:discussion, not a task"),
+    ("lmcache: maintainer says no longer maintained", issue([("d", "COLLABORATOR", "In-process CacheBlend is no longer maintained. We're developing CacheBlend support for MP mode.")], labels=["good second issue"]), "dropped:maintainer declined or asked for info"),
+    ("qdrant: accepted bug", issue(title="Majority read consistency drops valid sparse search results", labels=["help wanted"]), "ready"),
 ]
 bad = 0
 for name, i, want in CASES:

@@ -418,6 +418,9 @@ MAINT_INVITE = re.compile(
     r"help (is |would be )?(wanted|welcome|appreciated)|open to (a |the )?(pr|pull request|contribution)|"
     r"(would|'d) (love|like|welcome|appreciate) (a |an |the |to see )?(pr|pull request|patch|contribution|fix)", re.I)
 MAINT_DECLINE = re.compile(
+    r"no longer (maintained|supported)|not (actively )?maintained|deprecated|"
+    r"we.?re (currently )?(developing|building|adding|implementing|rewriting|reworking)|"
+    r"we are (currently )?(developing|building|adding|implementing|rewriting|reworking)|"
     r"no plans?\b|not planned|won'?t (fix|implement|support|be |add)|out of scope|not a priority|not something we|"
     r"can(no|')t reproduce|unable to reproduce|could ?n[o']t reproduce|need more (info|information|details)|"
     r"please (provide|share|attach|post)|(can|could) you (share|provide|post|attach|try)|closing (this|as)|"
@@ -464,6 +467,13 @@ def open_prs_among(full, numbers):
     return is_open
 
 
+BOTLIKE = re.compile(r"(bot|-ci|automation|actions|triage|sync)(?![a-z0-9])", re.I)
+
+
+def is_person(actor):
+    return (actor or {}).get("__typename") == "User" and not BOTLIKE.search((actor or {}).get("login") or "")
+
+
 def human_labels(i):
     """Labels applied by a person. The reporter's own labels (issue templates) only count if they are a maintainer."""
     events = (i.get("labeled") or {}).get("nodes")
@@ -472,8 +482,15 @@ def human_labels(i):
     reporter = (i.get("author") or {}).get("login")
     own_ok = i.get("authorAssociation") in MAINT
     return {e["label"]["name"] for e in events
-            if e and e.get("label") and (e.get("actor") or {}).get("__typename") == "User"
+            if e and e.get("label") and is_person(e.get("actor"))
             and (own_ok or (e.get("actor") or {}).get("login") != reporter)}
+
+
+AI_WRITTEN = re.compile(
+    r"(written|generated|drafted|authored|filed|opened) (by|with|using) (an? )?(ai|llm|agent|openhands|codex|claude|chatgpt|gpt)|"
+    r"(i|i.?m|i am) an? (ai|codex|claude|gpt|llm)(-based)? (agent|assistant)|on behalf of the user", re.I)
+ESSAY_TITLE = re.compile(r"^[^a-z]*(feedback|pattern|idea|showcase|thoughts|vision|manifesto|built with|introducing)(?![a-z])|"
+                         r"cookbook|!$", re.I)
 
 
 def actionability(c):
@@ -481,6 +498,10 @@ def actionability(c):
     labels, title, body = c["labels"], c["title"], c.get("body_md") or c["body"]
     if c.get("is_bot"):
         return None, "filed by a bot"
+    if AI_WRITTEN.search((c["body"] or "")[:4000]):
+        return None, "written by an AI agent"
+    if ESSAY_TITLE.search(title) or NOT_TASK_TITLE.search(title):
+        return None, "discussion, not a task"
     if c.get("assoc") not in MAINT and (OUTREACH.search(title + " " + (c["body"] or "")[:1500]) or HYPE.search(title)):
         return None, "outreach or promotion, not a task"
     blocked = next((l for l in labels if BLOCKED_LABEL.search(l)), None)
@@ -501,6 +522,8 @@ def actionability(c):
     pool = labels if trusted is None else [l for l in labels if l in trusted]
     ready = next((l for l in pool if READY_LABEL.search(l)), None)
     if ready:
+        if c.get("assoc") in MAINT and c.get("self_labelled"):
+            return 1, ready.lower() + " (own issue)"
         return 0, ready.lower()
     not_task = next((l for l in labels if NOT_TASK_LABEL.search(l)), None)
     if not_task or NOT_TASK_TITLE.search(title) or REPORT_TITLE.search(title):
@@ -561,7 +584,7 @@ TRIVIAL = ["fix a small typo", "minor wording change", "bump a dependency versio
 
 JUNK = re.compile(r"airdrop|micro-?payments?|boost your|giveaway|backlinks?|\bseo\b|sponsor(ed|ship)|"
                   r"promo(tion| code)|earn (money|crypto|rewards)|listed your (tool|project)", re.I)
-SCORE_V = 8  # bump when scoring rules change so cached verdicts are recomputed
+SCORE_V = 9  # bump when scoring rules change so cached verdicts are recomputed
 
 
 def issue_text(c):
@@ -682,7 +705,7 @@ def rank(cands):
     cands.sort(key=lambda c: (c["sc"]["k"] == "docs", -c["pri"]))
     per_repo, raw, ranked = {}, 0, []
     for c in cands:
-        if per_repo.get(c["repo"], 0) >= (MAX_PER_REPO if c.get("rfit", 1.0) >= 0.5 else 2) or len(ranked) >= MAX_FEED:
+        if per_repo.get(c["repo"], 0) >= (MAX_PER_REPO if c.get("rfit", 1.0) >= 0.5 and c.get("stars", 99999) >= 3000 else 2) or len(ranked) >= MAX_FEED:
             continue
         if c["tier"] == 2:
             if raw >= MAX_RAW:
@@ -800,7 +823,7 @@ def main():
         fit = domain_fit(r.get("description") or "", [n["topic"]["name"] for n in r["repositoryTopics"]["nodes"]],
                          (r.get("primaryLanguage") or {}).get("name"))
         why_not = repo_verdict(r, seeded)
-        if not why_not and not args.fixture and rfit < 0.5:  # topic gate, any language
+        if not why_not and not args.fixture and not seeded and rfit < 0.5:  # topic gate, any language
             why_not = "not AI / ML / agents / serving / evals work"
         if not why_not and not seeded and fit < 0.5:
             why_not = f"end-user app, not infra/systems (fit {fit:.2f})"
@@ -826,7 +849,7 @@ def main():
             if True:
                 c = {
                     "repo": full, "num": i["number"], "title": i["title"][:140], "body": i["bodyText"] or "",
-                    "body_md": i.get("body") or "", "assoc": i.get("authorAssociation"), "cred": cred, "rfit": rfit,
+                    "body_md": i.get("body") or "", "assoc": i.get("authorAssociation"), "cred": cred, "rfit": rfit, "stars": r["stargazerCount"],
                     "is_bot": (i.get("author") or {}).get("__typename") == "Bot",
                     "own_comments": sum(1 for cm in i["comments"]["nodes"]
                                         if (cm.get("author") or {}).get("login") == (i.get("author") or {}).get("login")),
@@ -838,6 +861,8 @@ def main():
                     "hw": bool(HARDWARE.search(i["title"] + " " + (i["bodyText"] or "")[:500])),
                     "maint_replied": any(cm.get("authorAssociation") in MAINT for cm in i["comments"]["nodes"]),
                     "human_labels": human_labels(i),
+                    "self_labelled": all((e.get("actor") or {}).get("login") == (i.get("author") or {}).get("login")
+                                         for e in (i.get("labeled") or {}).get("nodes") or [{}]),
                     "maint_text": " ".join((cm.get("bodyText") or "")[:1500] for cm in i["comments"]["nodes"]
                                            if cm.get("authorAssociation") in MAINT),
                     "labels": [l["name"] for l in i["labels"]["nodes"]], "updated": i["updatedAt"],
