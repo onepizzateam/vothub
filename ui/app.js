@@ -336,6 +336,7 @@ $("cfg-auto").onchange = (e) => invoke("set_autostart", { on: e.target.checked }
 $("cfg-quit").onclick = () => invoke("quit");
 
 document.addEventListener("contextmenu", (e) => e.preventDefault());
+renderFeed(); // draw the empty state before the first status arrives
 poll();
 
 // ------------------------------------------------- browser-only preview mock

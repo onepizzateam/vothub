@@ -25,6 +25,8 @@ const CPU_BUSY_PCT: f32 = 60.0;
 const MEM_BUSY_FRAC: f64 = 0.90;
 const MAX_FEED_BYTES: u64 = 4 * 1024 * 1024;
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+/// Feed used until another repo is set under STATION (forks: change this).
+const DEFAULT_REPO: &str = "onepizzateam/vothub";
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
@@ -414,6 +416,9 @@ fn main() {
                 .and_then(|text| serde_json::from_str(&text).ok())
                 .unwrap_or_default();
             cfg.next_sync = 0;
+            if !valid_repo(&cfg.repo) {
+                cfg.repo = DEFAULT_REPO.into();
+            }
 
             // Stored feed is the gzip the cloud produced; drop it once it ages out.
             let feed_path = dir.join("feed.json.gz");

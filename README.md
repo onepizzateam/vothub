@@ -101,7 +101,7 @@ $ ./target/release/vothub.exe
 
 1. Push the repo to your own **public** GitHub repo.
 2. `Actions` → `vothub-scan` → `Run workflow`. Only the first sweep is manual.
-3. Click the tab → `STATION` → `FEED REPO` → `owner/name`.
+3. Point the tab at your repo: click it → `STATION` → `FEED REPO` → `owner/name`. Until you do, it listens to `onepizzateam/vothub` (`DEFAULT_REPO` in `app/src/main.rs`).
 
 > [!TIP]
 > After that first run the sweep is on a schedule and needs nothing from you.
