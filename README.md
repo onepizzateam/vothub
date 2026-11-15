@@ -64,7 +64,7 @@ An issue survives only if it is open, under 45 days old, unassigned, has no open
 
 `bge-small-en-v1.5`, a small embedding model, places each issue by kind, sector and substance. That is blended with body size, reactions, labels, how fast the repo is rising and how fresh the issue is. Verdicts are cached by the issue's `updated_at`, so an unchanged issue is never scored twice.
 
-No API keys: the model runs on the Actions runner for free. Adding an `ANTHROPIC_API_KEY` repo secret switches scoring to Claude; leave it out and nothing changes.
+No API keys: the model runs on the Actions runner for free.
 
 </details>
 
@@ -121,7 +121,6 @@ $ ./target/release/vothub.exe
 | discovery queries, issue window, ranking weights, reference phrases | top of `scanner/scan.py` |
 | sweep times | `cron` in `.github/workflows/scan.yml` (UTC) and `SLOT_HOURS` in `app/src/main.rs` |
 | busy thresholds | constants at the top of `app/src/main.rs` |
-| Claude model, if a key is set | repo variable `VOTHUB_MODEL` |
 | these panels | `python docs/make_panels.py` |
 
 </details>

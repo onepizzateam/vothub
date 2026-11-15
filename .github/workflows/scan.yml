@@ -45,12 +45,8 @@ jobs:
       - name: Scan
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }} # optional: enables Claude scoring
-          VOTHUB_MODEL: ${{ vars.VOTHUB_MODEL }}               # optional: override the Claude model
           VOTHUB_MODEL_DIR: /home/runner/.cache/vothub-models
         run: |
-          [ -n "$VOTHUB_MODEL" ] || unset VOTHUB_MODEL
-          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
           python scanner/scan.py --out data
 
       - name: Publish to the data branch (single orphan commit, history never grows)
