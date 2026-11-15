@@ -74,7 +74,7 @@ query($owner:String!,$name:String!,$since:DateTime!,$labels:[String!]){
     primaryLanguage{name}
     repositoryTopics(first:10){nodes{topic{name}}}
     contributing: object(expression:"HEAD:CONTRIBUTING.md"){... on Blob{text}}
-    pullRequests(states:MERGED, first:30, orderBy:{field:UPDATED_AT,direction:DESC}){
+    pullRequests(states:MERGED, first:100, orderBy:{field:UPDATED_AT,direction:DESC}){
       nodes{authorAssociation mergedAt}
     }
     issues(states:OPEN, first:40, orderBy:{field:CREATED_AT,direction:DESC}, filterBy:{since:$since}){
@@ -223,7 +223,7 @@ SKIP_LABELS = re.compile(r"wontfix|won't fix|invalid|duplicate|stale|blocked|nee
 
 
 def outside_merges(r):
-    """How many of the last 30 merged PRs (within 90 days) came from non-members."""
+    """How many of the last 100 merged PRs (within 90 days) came from non-members."""
     cutoff = NOW - timedelta(days=90)
     return sum(1 for p in r["pullRequests"]["nodes"]
                if p["authorAssociation"] in OUTSIDER and p["mergedAt"] and _dt(p["mergedAt"]) > cutoff)
@@ -305,6 +305,9 @@ def repo_verdict(r, seeded=False):
         return "issues disabled"
     outside = outside_merges(r)
     contributing = ((r.get("contributing") or {}).get("text") or "")[:20000]
+    # "we do not accept contributions from autonomous agents / LLMs" restricts who writes the PR, not who may send one
+    contributing = chr(10).join(ln for ln in contributing.splitlines()
+                             if not re.search(r"autonomous|agents?\b|\bllms?\b|\bai\b|\bbots?\b|generated|copilot", ln, re.I))
     # Merged outside PRs are stronger evidence than wording: the text only decides
     # when few outsiders actually get merged (it often restricts one kind of PR).
     if outside < 5 and CLOSED_DOOR.search(contributing):
@@ -767,7 +770,7 @@ def main():
                     targets.setdefault(n, {"lane": LANES.index(lane_name), "vel": None})
 
     # 2. repo gate + issue gate
-    repos, cands, dropped, rejected = {}, [], 0, {}
+    repos, cands, dropped, rejected, report = {}, [], 0, {}, {}
     for full, t in targets.items():
         memo = cache["repos"].get(full)
         if memo and memo.get("v") == SCORE_V and memo["t"] > now_s - 3 * 86400:  # known closed-door repo: skip the API call
@@ -790,6 +793,7 @@ def main():
         if why_not:
             log(f"  drop {full}: {why_not}")
             cache["repos"][full] = {"t": now_s, "why": why_not, "v": SCORE_V}
+            report[full] = {"dropped": why_not}
             dropped += 1
             continue
         age = max(14, (NOW - _dt(r["createdAt"])).days)
@@ -798,9 +802,14 @@ def main():
         repos[full] = {"stars": r["stargazerCount"], "vel": vel, "lane": t["lane"], "cred": cred, "rfit": rfit,
                        "lang": (r.get("primaryLanguage") or {}).get("name") or "?",
                        "desc": (r.get("description") or "")[:110]}
-        mine = []
+        mine, rep = [], {"stars": r["stargazerCount"], "outside": outside_merges(r), "fit": round(fit, 2),
+                         "rfit": round(rfit, 2), "seen": len(r["issues"]["nodes"]), "closed": 0, "rej": {}}
+        report[full] = rep
         for i in r["issues"]["nodes"]:
-            if issue_open_for_grabs(i):
+            if not issue_open_for_grabs(i):
+                rep["closed"] += 1  # assigned, too old, claimed, fixed, upstreamed or has an open PR
+                continue
+            if True:
                 c = {
                     "repo": full, "num": i["number"], "title": i["title"][:140], "body": i["bodyText"] or "",
                     "body_md": i.get("body") or "", "assoc": i.get("authorAssociation"), "cred": cred, "rfit": rfit,
@@ -824,7 +833,9 @@ def main():
                     "desc": repos[full]["desc"]}
                 c["tier"], c["reason"] = actionability(c)
                 if c["tier"] is None:
-                    rejected[c["reason"].split(":")[0]] = rejected.get(c["reason"].split(":")[0], 0) + 1
+                    k = c["reason"].split(":")[0]
+                    rejected[k] = rejected.get(k, 0) + 1
+                    rep["rej"][k] = rep["rej"].get(k, 0) + 1
                 else:
                     c["refs"] = issue_refs(full, c["num"], c["body_md"])
                     mine.append(c)
@@ -900,6 +911,7 @@ def main():
     cache["repos"] = {k: v for k, v in cache["repos"].items() if v["t"] > cutoff}
     raw = save_gz(out / "feed.json.gz", feed)
     save_gz(out / "cache.json.gz", cache)
+    (out / "report.json").write_text(json.dumps({"gen": now_s, "repos": report}, separators=(",", ":")), encoding="utf-8")
     log(f"feed: {len(rows)} issues / {len(names)} repos, {raw} bytes raw, "
         f"{(out / 'feed.json.gz').stat().st_size} bytes gzipped")
 

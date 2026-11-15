@@ -56,6 +56,6 @@ jobs:
           cd data
           rm -rf .git
           git init -q -b data
-          git add feed.json.gz cache.json.gz
+          git add feed.json.gz cache.json.gz report.json
           git -c user.name=vothub-bot -c user.email=vothub-bot@users.noreply.github.com commit -qm "scan $(date -u +%FT%RZ)"
           git push -qf "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data
